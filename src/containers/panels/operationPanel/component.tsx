@@ -169,31 +169,53 @@ class OperationPanel extends React.Component<
   };
 
   handleCustomTTS = async () => {
+    console.log('🎵 [TOP TTS] Custom TTS button clicked, current state:', this.state.isCustomTTSOn);
+    
     if (this.state.isCustomTTSOn) {
       // Stop TTS
+      console.log('🛑 [TOP TTS] Stopping TTS...');
       if (this.currentAudio) {
         this.currentAudio.pause();
         this.currentAudio = null;
+        console.log('⏸️ [TOP TTS] Audio stopped and cleared');
       }
       this.setState({ isCustomTTSOn: false });
+      console.log('✅ [TOP TTS] TTS stopped successfully');
       return;
     }
 
     try {
       // Start TTS
+      console.log('🚀 [TOP TTS] Starting TTS...');
       this.setState({ isCustomTTSOn: true });
       
       // Get current visible text
+      console.log('📖 [TOP TTS] Checking htmlBook and rendition...');
+      console.log('📖 [TOP TTS] htmlBook:', this.props.htmlBook);
+      console.log('📖 [TOP TTS] rendition:', this.props.htmlBook?.rendition);
+      console.log('📖 [TOP TTS] Props available:', Object.keys(this.props));
+      
       if (!this.props.htmlBook || !this.props.htmlBook.rendition) {
+        console.error('❌ [TOP TTS] Book not ready - htmlBook or rendition missing');
         toast.error(this.props.t("Book not ready for TTS"));
         this.setState({ isCustomTTSOn: false });
         return;
       }
       
+      console.log('📄 [TOP TTS] Getting visible text...');
+      console.log('📄 [TOP TTS] rendition.visibleText method exists:', typeof this.props.htmlBook.rendition.visibleText);
+      
       const visibleTexts = await this.props.htmlBook.rendition.visibleText();
+      console.log('📄 [TOP TTS] Raw visible texts type:', typeof visibleTexts);
+      console.log('📄 [TOP TTS] Raw visible texts array:', Array.isArray(visibleTexts));
+      console.log('📄 [TOP TTS] Raw visible texts:', visibleTexts);
+      
       const text = visibleTexts.join(' ').trim();
+      console.log('📄 [TOP TTS] Joined text length:', text.length);
+      console.log('📄 [TOP TTS] Text preview (first 200 chars):', text.substring(0, 200));
       
       if (!text) {
+        console.error('❌ [TOP TTS] No text found');
         toast.error(this.props.t("No text to read"));
         this.setState({ isCustomTTSOn: false });
         return;
@@ -201,72 +223,148 @@ class OperationPanel extends React.Component<
 
       // Detect language and choose API
       const language = this.detectLanguage(text);
+      console.log('🌍 [TOP TTS] Detected language:', language);
+      console.log('🌍 [TOP TTS] Language detection details:', {
+        chineseCount: (text.match(/[\u4e00-\u9fff]/g) || []).length,
+        englishCount: (text.match(/[a-zA-Z]/g) || []).length
+      });
+      
       let cleanText = text.replace(/[\r\n\t\f]/g, ' ').replace(/\s+/g, ' ').trim();
+      console.log('🧹 [TOP TTS] Cleaned text length:', cleanText.length);
       
       // Limit text length to prevent server crashes (max 1000 characters)
       if (cleanText.length > 1000) {
+        console.log('✂️ [TOP TTS] Text length before truncation:', cleanText.length);
         cleanText = cleanText.substring(0, 1000) + '...';
+        console.log('✂️ [TOP TTS] Text truncated to prevent server overload, new length:', cleanText.length);
         toast.success(this.props.t("Text truncated to prevent server overload"));
       }
+      
+      console.log('📝 [TOP TTS] Final text to send (first 100 chars):', cleanText.substring(0, 100) + '...');
       
       let audioBlob;
       
       if (language === 'zh') {
         // Chinese TTS API
+        console.log('🇨🇳 [TOP TTS] Using Chinese TTS API');
+        const requestBody = {
+          text: cleanText,
+          speaker: 'ZH'
+        };
+        console.log('📡 [TOP TTS] Chinese API request body:', requestBody);
+        console.log('📡 [TOP TTS] Chinese API URL: https://ttszh.mattwu.cc/tts');
+        
         const response = await fetch('https://ttszh.mattwu.cc/tts', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            text: cleanText,
-            speaker: 'ZH'
-          })
+          body: JSON.stringify(requestBody)
         });
         
+        console.log('📡 [TOP TTS] Chinese API response status:', response.status);
+        console.log('📡 [TOP TTS] Chinese API response statusText:', response.statusText);
+        console.log('📡 [TOP TTS] Chinese API response headers:', Object.fromEntries(response.headers.entries()));
+        
         if (!response.ok) {
+          console.error('❌ [TOP TTS] Chinese TTS API error:', response.status, response.statusText);
+          const errorText = await response.text();
+          console.error('❌ [TOP TTS] Chinese API error body:', errorText);
           throw new Error(`Chinese TTS API error: ${response.status}`);
         }
         
         audioBlob = await response.blob();
+        console.log('🎵 [TOP TTS] Chinese audio blob size:', audioBlob.size);
+        console.log('🎵 [TOP TTS] Chinese audio blob type:', audioBlob.type);
       } else {
         // English TTS API
-        const response = await fetch(`https://tts.mattwu.cc/api/tts?text=${encodeURIComponent(cleanText)}&speaker_id=p335`);
+        console.log('🇺🇸 [TOP TTS] Using English TTS API');
+        const apiUrl = `https://tts.mattwu.cc/api/tts?text=${encodeURIComponent(cleanText)}&speaker_id=p335`;
+        console.log('📡 [TOP TTS] English API URL:', apiUrl);
+        console.log('📡 [TOP TTS] English API encoded text length:', encodeURIComponent(cleanText).length);
+        
+        const response = await fetch(apiUrl);
+        
+        console.log('📡 [TOP TTS] English API response status:', response.status);
+        console.log('📡 [TOP TTS] English API response statusText:', response.statusText);
+        console.log('📡 [TOP TTS] English API response headers:', Object.fromEntries(response.headers.entries()));
         
         if (!response.ok) {
+          console.error('❌ [TOP TTS] English TTS API error:', response.status, response.statusText);
+          const errorText = await response.text();
+          console.error('❌ [TOP TTS] English API error body:', errorText);
           throw new Error(`English TTS API error: ${response.status}`);
         }
         
         audioBlob = await response.blob();
+        console.log('🎵 [TOP TTS] English audio blob size:', audioBlob.size);
+        console.log('🎵 [TOP TTS] English audio blob type:', audioBlob.type);
       }
 
       // Play audio
+      console.log('🎧 [TOP TTS] Creating audio object...');
       const audioUrl = URL.createObjectURL(audioBlob);
+      console.log('🎧 [TOP TTS] Audio URL created:', audioUrl);
+      
       this.currentAudio = new Audio(audioUrl);
+      console.log('🎧 [TOP TTS] Audio object created');
+      console.log('🎧 [TOP TTS] Audio readyState:', this.currentAudio.readyState);
+      console.log('🎧 [TOP TTS] Audio networkState:', this.currentAudio.networkState);
       
       this.currentAudio.onended = () => {
+        console.log('🏁 [TOP TTS] Audio playback ended');
         URL.revokeObjectURL(audioUrl);
         this.currentAudio = null;
         this.setState({ isCustomTTSOn: false });
       };
       
-      this.currentAudio.onerror = () => {
+      this.currentAudio.onerror = (errorEvent) => {
+        console.error('❌ [TOP TTS] Audio error event:', errorEvent);
+        console.error('❌ [TOP TTS] Audio error details:', this.currentAudio?.error);
         URL.revokeObjectURL(audioUrl);
         this.currentAudio = null;
         this.setState({ isCustomTTSOn: false });
         toast.error(this.props.t("Audio playback failed"));
       };
       
+      this.currentAudio.onloadstart = () => {
+        console.log('📥 [TOP TTS] Audio load started');
+      };
+      
+      this.currentAudio.oncanplaythrough = () => {
+        console.log('✅ [TOP TTS] Audio can play through');
+      };
+      
       try {
+        console.log('▶️ [TOP TTS] Starting audio playback...');
+        console.log('▶️ [TOP TTS] Audio duration:', this.currentAudio.duration);
+        console.log('▶️ [TOP TTS] Audio src:', this.currentAudio.src);
+        
         await this.currentAudio.play();
+        console.log('✅ [TOP TTS] Audio playback started successfully');
+        console.log('✅ [TOP TTS] Audio current time:', this.currentAudio.currentTime);
+        console.log('✅ [TOP TTS] Audio paused:', this.currentAudio.paused);
+        
         toast.success(this.props.t(`${language === 'zh' ? 'Chinese' : 'English'} TTS started`));
       } catch (playError) {
-        console.error('Audio play failed:', playError);
+        console.error('❌ [TOP TTS] Audio play failed:', playError);
+        console.error('❌ [TOP TTS] Play error details:', {
+          name: playError.name,
+          message: playError.message,
+          stack: playError.stack
+        });
+        console.error('❌ [TOP TTS] Audio state during error:', {
+          readyState: this.currentAudio?.readyState,
+          networkState: this.currentAudio?.networkState,
+          error: this.currentAudio?.error
+        });
+        
         URL.revokeObjectURL(audioUrl);
         this.currentAudio = null;
         this.setState({ isCustomTTSOn: false });
         
         if (playError.name === 'NotAllowedError') {
+          console.log('🔒 [TOP TTS] NotAllowedError - user interaction required');
           toast.error(this.props.t("Please click the button to enable audio playback"));
         } else {
           toast.error(this.props.t("Audio playback failed"));
@@ -275,7 +373,12 @@ class OperationPanel extends React.Component<
       }
       
     } catch (error) {
-      console.error('Custom TTS error:', error);
+      console.error('💥 [TOP TTS] Custom TTS error:', error);
+      console.error('💥 [TOP TTS] Error details:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      });
       this.setState({ isCustomTTSOn: false });
       toast.error(this.props.t("TTS service unavailable"));
     }
