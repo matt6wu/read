@@ -548,6 +548,11 @@ class OperationPanel extends React.Component<
         console.log('📍 [TOP TTS] Current page before turn:', currentPageInfo);
         
         await this.props.htmlBook.rendition.next();
+        
+        // 🗑️ Clear cache when turning page to prevent old page content playback
+        this.audioCache.clear();
+        console.log('🗑️ [TOP TTS] Audio cache cleared after page turn to prevent old content playback');
+        
         toast.success(this.props.t("Turning to next page..."));
         
         // Wait for page to load and verify we actually turned
