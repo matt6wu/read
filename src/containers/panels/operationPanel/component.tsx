@@ -338,12 +338,17 @@ class OperationPanel extends React.Component<
       
       if (audioBlob) {
         await this.playTTSChunk(audioBlob, () => {
-          // Continue with next chunk after this one finishes
-          this.processTTSChunks(sentenceList, currentIndex);
+          // Add small delay before next chunk to prevent server overload
+          setTimeout(() => {
+            this.processTTSChunks(sentenceList, currentIndex);
+          }, 500); // 500ms delay between chunks
         });
       } else {
-        // Skip to next chunk if this one failed
-        await this.processTTSChunks(sentenceList, currentIndex);
+        console.log('⏭️ [TOP TTS] Chunk failed, waiting before retry...');
+        // Add delay even for failed chunks to avoid hammering server
+        setTimeout(() => {
+          this.processTTSChunks(sentenceList, currentIndex);
+        }, 2000); // 2 second delay for failed requests
       }
       
     } catch (error) {
