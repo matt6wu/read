@@ -384,6 +384,74 @@ class OperationPanel extends React.Component<
     }
   };
 
+  // Pause TTS functionality
+  handlePauseTTS = () => {
+    console.log('⏸️ [TOP TTS] Pause button clicked');
+    console.log('⏸️ [TOP TTS] Current audio state:', {
+      exists: !!this.currentAudio,
+      paused: this.currentAudio?.paused,
+      currentTime: this.currentAudio?.currentTime,
+      duration: this.currentAudio?.duration
+    });
+    
+    if (this.currentAudio && !this.currentAudio.paused) {
+      console.log('⏸️ [TOP TTS] Pausing audio...');
+      this.currentAudio.pause();
+      console.log('⏸️ [TOP TTS] Audio paused at time:', this.currentAudio.currentTime);
+      toast.success(this.props.t("TTS paused"));
+    } else if (this.currentAudio && this.currentAudio.paused) {
+      console.log('▶️ [TOP TTS] Resuming audio...');
+      this.currentAudio.play().then(() => {
+        console.log('▶️ [TOP TTS] Audio resumed successfully');
+        toast.success(this.props.t("TTS resumed"));
+      }).catch((error) => {
+        console.error('❌ [TOP TTS] Resume failed:', error);
+        toast.error(this.props.t("Resume failed"));
+      });
+    } else {
+      console.log('❌ [TOP TTS] No audio to pause/resume');
+      toast.error(this.props.t("No audio playing"));
+    }
+  };
+
+  // Stop TTS functionality
+  handleStopTTS = () => {
+    console.log('🛑 [TOP TTS] Stop button clicked');
+    console.log('🛑 [TOP TTS] Current audio state:', {
+      exists: !!this.currentAudio,
+      paused: this.currentAudio?.paused,
+      currentTime: this.currentAudio?.currentTime,
+      src: this.currentAudio?.src
+    });
+    
+    if (this.currentAudio) {
+      console.log('🛑 [TOP TTS] Stopping and clearing audio...');
+      
+      // Store the URL to revoke it
+      const audioUrl = this.currentAudio.src;
+      
+      // Stop and clear the audio
+      this.currentAudio.pause();
+      this.currentAudio.currentTime = 0;
+      this.currentAudio = null;
+      
+      // Revoke the blob URL to free memory
+      if (audioUrl && audioUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(audioUrl);
+        console.log('🗑️ [TOP TTS] Audio blob URL revoked:', audioUrl);
+      }
+      
+      // Update state
+      this.setState({ isCustomTTSOn: false });
+      
+      console.log('✅ [TOP TTS] Audio stopped and cleared successfully');
+      toast.success(this.props.t("TTS stopped"));
+    } else {
+      console.log('❌ [TOP TTS] No audio to stop');
+      toast.error(this.props.t("No audio playing"));
+    }
+  };
+
   render() {
     return (
       <div className="book-operation-panel">
@@ -472,6 +540,39 @@ class OperationPanel extends React.Component<
             </div>
           </div>
         </div>
+        {/* Show pause and stop buttons only when TTS is active */}
+        {this.state.isCustomTTSOn && (
+          <>
+            <div
+              className="pause-tts-button"
+              onClick={this.handlePauseTTS}
+            >
+              <div className="operation-button-container">
+                <div style={{ display: "flex", alignItems: "center" }}>
+                  <span 
+                    className={`${this.currentAudio && !this.currentAudio.paused ? 'icon-pause' : 'icon-play'} pause-tts-icon`}
+                  ></span>
+                  <span className="pause-tts-text">
+                    <Trans>{this.currentAudio && !this.currentAudio.paused ? "Pause" : "Resume"}</Trans>
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div
+              className="stop-tts-button"
+              onClick={this.handleStopTTS}
+            >
+              <div className="operation-button-container">
+                <div style={{ display: "flex", alignItems: "center" }}>
+                  <span className="icon-stop stop-tts-icon"></span>
+                  <span className="stop-tts-text">
+                    <Trans>Stop</Trans>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
         <div
           className="enter-fullscreen-button"
           onClick={() => {

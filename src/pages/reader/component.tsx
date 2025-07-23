@@ -23,7 +23,7 @@ class Reader extends React.Component<ReaderProps, ReaderState> {
   constructor(props: ReaderProps) {
     super(props);
     this.state = {
-      isOpenTopPanel: false,
+      isOpenTopPanel: true,
       isOpenBottomPanel: false,
       hoverPanel: "",
       isOpenLeftPanel: this.props.isNavLocked,
