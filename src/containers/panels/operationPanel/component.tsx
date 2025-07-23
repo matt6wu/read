@@ -431,25 +431,91 @@ class OperationPanel extends React.Component<
         (item) => item !== "img" && !item.startsWith("img")
       );
       
-      const lastSentenceRead = completedSentences[completedSentences.length - 1];
-      const lastSentenceOnPage = lastVisibleSentences[lastVisibleSentences.length - 1];
+      const lastSentenceRead = completedSentences[completedSentences.length - 1]?.trim();
+      const lastSentenceOnPage = lastVisibleSentences[lastVisibleSentences.length - 1]?.trim();
       
       console.log('📄 [TOP TTS] Last sentence read:', lastSentenceRead?.substring(0, 50) + '...');
       console.log('📄 [TOP TTS] Last sentence on page:', lastSentenceOnPage?.substring(0, 50) + '...');
       
-      if (lastSentenceRead === lastSentenceOnPage) {
+      // More robust comparison - check if we've read most of the visible content
+      let shouldTurnPage = false;
+      
+      if (lastSentenceRead && lastSentenceOnPage) {
+        // Method 1: Exact match
+        if (lastSentenceRead === lastSentenceOnPage) {
+          console.log('✅ [TOP TTS] Exact sentence match - turning page');
+          shouldTurnPage = true;
+        }
+        // Method 2: Fuzzy match for similar sentences
+        else if (lastSentenceRead.length > 20 && lastSentenceOnPage.length > 20) {
+          const similarity = this.calculateSimilarity(lastSentenceRead, lastSentenceOnPage);
+          console.log('📊 [TOP TTS] Sentence similarity:', similarity);
+          if (similarity > 0.8) {
+            console.log('✅ [TOP TTS] High similarity match - turning page');
+            shouldTurnPage = true;
+          }
+        }
+        
+        // Method 3: Always check read percentage as fallback (independent of other checks)
+        if (!shouldTurnPage) {
+          const readSentencesCount = completedSentences.length;
+          const visibleSentencesCount = lastVisibleSentences.length;
+          const readPercentage = readSentencesCount / visibleSentencesCount;
+          console.log('📊 [TOP TTS] Read percentage:', readPercentage, `(${readSentencesCount}/${visibleSentencesCount})`);
+          if (readPercentage >= 0.9) {
+            console.log('✅ [TOP TTS] Read percentage threshold met - turning page');
+            shouldTurnPage = true;
+          }
+        }
+        
+        // Method 4: Check if we've read past the visible content (overflow detection)
+        if (!shouldTurnPage) {
+          // Get all visible text and check if we've read most of it
+          const allVisibleText = visibleTexts.join(' ');
+          const allCompletedText = completedSentences.join(' ');
+          const textOverlap = this.calculateTextOverlap(allCompletedText, allVisibleText);
+          console.log('📊 [TOP TTS] Text overlap percentage:', textOverlap);
+          if (textOverlap >= 0.85) {
+            console.log('✅ [TOP TTS] High text overlap - turning page');
+            shouldTurnPage = true;
+          }
+        }
+      }
+      
+      if (shouldTurnPage) {
         console.log('📖 [TOP TTS] Reached end of page, turning to next page...');
+        
+        // Store current page info to avoid repeating
+        const currentPageInfo = await this.props.htmlBook.rendition.getPosition();
+        console.log('📍 [TOP TTS] Current page before turn:', currentPageInfo);
+        
         await this.props.htmlBook.rendition.next();
         toast.success(this.props.t("Turning to next page..."));
         
-        // Continue TTS on next page
-        setTimeout(() => {
+        // Wait for page to load and verify we actually turned
+        setTimeout(async () => {
           if (this.state.isCustomTTSOn) {
-            this.startSmartTTS();
+            try {
+              const newPageInfo = await this.props.htmlBook.rendition.getPosition();
+              console.log('📍 [TOP TTS] New page after turn:', newPageInfo);
+              
+              // Only continue if we actually moved to a different page
+              if (JSON.stringify(currentPageInfo) !== JSON.stringify(newPageInfo)) {
+                console.log('✅ [TOP TTS] Successfully turned page, continuing TTS...');
+                this.startSmartTTS();
+              } else {
+                console.log('⚠️ [TOP TTS] Page did not change, stopping TTS');
+                this.setState({ isCustomTTSOn: false });
+                toast.success(this.props.t("TTS completed - end of book"));
+              }
+            } catch (error) {
+              console.error('❌ [TOP TTS] Error verifying page turn:', error);
+              this.setState({ isCustomTTSOn: false });
+            }
           }
-        }, 500); // Small delay to let page load
+        }, 800); // Longer delay to ensure page loads
       } else {
-        console.log('🏁 [TOP TTS] Finished reading current visible content');
+        console.log('🏁 [TOP TTS] Not at end of page yet, stopping TTS');
         this.setState({ isCustomTTSOn: false });
         toast.success(this.props.t("TTS completed"));
       }
@@ -458,6 +524,99 @@ class OperationPanel extends React.Component<
       console.error('❌ [TOP TTS] Error checking page turn:', error);
       this.setState({ isCustomTTSOn: false });
     }
+  };
+
+  // Helper function to calculate string similarity
+  calculateSimilarity = (str1: string, str2: string): number => {
+    const longer = str1.length > str2.length ? str1 : str2;
+    const shorter = str1.length > str2.length ? str2 : str1;
+    
+    if (longer.length === 0) return 1.0;
+    
+    const editDistance = this.levenshteinDistance(longer, shorter);
+    return (longer.length - editDistance) / longer.length;
+  };
+
+  // Helper function to calculate text overlap percentage
+  calculateTextOverlap = (readText: string, visibleText: string): number => {
+    if (!readText || !visibleText) return 0;
+    
+    // Normalize texts for comparison
+    const normalizeText = (text: string) => text
+      .toLowerCase()
+      .replace(/[^\w\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    
+    const normalizedRead = normalizeText(readText);
+    const normalizedVisible = normalizeText(visibleText);
+    
+    if (normalizedVisible.length === 0) return 0;
+    
+    // Calculate how much of the visible text we've covered
+    const overlapLength = Math.min(normalizedRead.length, normalizedVisible.length);
+    const commonSubstring = this.findLongestCommonSubstring(normalizedRead, normalizedVisible);
+    
+    return commonSubstring.length / normalizedVisible.length;
+  };
+
+  // Helper function to find longest common substring
+  findLongestCommonSubstring = (str1: string, str2: string): string => {
+    const matrix: number[][] = [];
+    let maxLength = 0;
+    let endPosition = 0;
+
+    // Initialize matrix
+    for (let i = 0; i <= str1.length; i++) {
+      matrix[i] = [];
+      for (let j = 0; j <= str2.length; j++) {
+        matrix[i][j] = 0;
+      }
+    }
+
+    // Fill matrix
+    for (let i = 1; i <= str1.length; i++) {
+      for (let j = 1; j <= str2.length; j++) {
+        if (str1[i - 1] === str2[j - 1]) {
+          matrix[i][j] = matrix[i - 1][j - 1] + 1;
+          if (matrix[i][j] > maxLength) {
+            maxLength = matrix[i][j];
+            endPosition = i;
+          }
+        }
+      }
+    }
+
+    return str1.substring(endPosition - maxLength, endPosition);
+  };
+
+  // Helper function to calculate Levenshtein distance
+  levenshteinDistance = (str1: string, str2: string): number => {
+    const matrix: number[][] = [];
+    
+    for (let i = 0; i <= str2.length; i++) {
+      matrix[i] = [i];
+    }
+    
+    for (let j = 0; j <= str1.length; j++) {
+      matrix[0][j] = j;
+    }
+    
+    for (let i = 1; i <= str2.length; i++) {
+      for (let j = 1; j <= str1.length; j++) {
+        if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+          matrix[i][j] = matrix[i - 1][j - 1];
+        } else {
+          matrix[i][j] = Math.min(
+            matrix[i - 1][j - 1] + 1,
+            matrix[i][j - 1] + 1,
+            matrix[i - 1][j] + 1
+          );
+        }
+      }
+    }
+    
+    return matrix[str2.length][str1.length];
   };
 
   // Pause TTS functionality
