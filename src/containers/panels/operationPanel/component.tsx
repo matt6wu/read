@@ -7,6 +7,7 @@ import { OperationPanelProps, OperationPanelState } from "./interface";
 import { ConfigService } from "../../../assets/lib/kookit-extra-browser.min";
 import { withRouter } from "react-router-dom";
 import toast from "react-hot-toast";
+import { splitSentences } from "../../../utils/common";
 import { HtmlMouseEvent } from "../../../utils/reader/mouseEvent";
 import TTSUtil from "../../../utils/reader/ttsUtil";
 import { isElectron } from "react-device-detect";
@@ -168,8 +169,9 @@ class OperationPanel extends React.Component<
     return chineseCount > englishCount ? 'zh' : 'en';
   };
 
+  // Smart TTS with chunking and auto page turn
   handleCustomTTS = async () => {
-    console.log('🎵 [TOP TTS] Custom TTS button clicked, current state:', this.state.isCustomTTSOn);
+    console.log('🎵 [TOP TTS] Smart TTS button clicked, current state:', this.state.isCustomTTSOn);
     
     if (this.state.isCustomTTSOn) {
       // Stop TTS
@@ -184,16 +186,18 @@ class OperationPanel extends React.Component<
       return;
     }
 
+    // Start Smart TTS with chunking
+    await this.startSmartTTS();
+  };
+
+  // New method for Smart TTS with chunking and auto page turn
+  startSmartTTS = async () => {
     try {
-      // Start TTS
-      console.log('🚀 [TOP TTS] Starting TTS...');
+      console.log('🚀 [TOP TTS] *** NEW CHUNKING VERSION *** Starting Smart TTS with chunking...');
       this.setState({ isCustomTTSOn: true });
       
-      // Get current visible text
+      // Get current visible text using audioText method (better for TTS)
       console.log('📖 [TOP TTS] Checking htmlBook and rendition...');
-      console.log('📖 [TOP TTS] htmlBook:', this.props.htmlBook);
-      console.log('📖 [TOP TTS] rendition:', this.props.htmlBook?.rendition);
-      console.log('📖 [TOP TTS] Props available:', Object.keys(this.props));
       
       if (!this.props.htmlBook || !this.props.htmlBook.rendition) {
         console.error('❌ [TOP TTS] Book not ready - htmlBook or rendition missing');
@@ -202,185 +206,199 @@ class OperationPanel extends React.Component<
         return;
       }
       
-      console.log('📄 [TOP TTS] Getting visible text...');
-      console.log('📄 [TOP TTS] rendition.visibleText method exists:', typeof this.props.htmlBook.rendition.visibleText);
+      console.log('📄 [TOP TTS] Getting audio-optimized text...');
+      const nodeTextList = (await this.props.htmlBook.rendition.audioText()).filter(
+        (item: string) => item && item.trim()
+      );
+      console.log('📄 [TOP TTS] Raw node text list:', nodeTextList);
       
-      const visibleTexts = await this.props.htmlBook.rendition.visibleText();
-      console.log('📄 [TOP TTS] Raw visible texts type:', typeof visibleTexts);
-      console.log('📄 [TOP TTS] Raw visible texts array:', Array.isArray(visibleTexts));
-      console.log('📄 [TOP TTS] Raw visible texts:', visibleTexts);
+      // Split into sentences using existing utility
+      const rawNodeList = nodeTextList.map((text) => splitSentences(text));
+      const sentenceList = rawNodeList
+        .flat()
+        .filter((item) => item !== "img" && !item.startsWith("img"));
       
-      const text = visibleTexts.join(' ').trim();
-      console.log('📄 [TOP TTS] Joined text length:', text.length);
-      console.log('📄 [TOP TTS] Text preview (first 200 chars):', text.substring(0, 200));
+      console.log('📄 [TOP TTS] Total sentences found:', sentenceList.length);
+      console.log('📄 [TOP TTS] First few sentences:', sentenceList.slice(0, 3));
       
-      if (!text) {
-        console.error('❌ [TOP TTS] No text found');
-        toast.error(this.props.t("No text to read"));
-        this.setState({ isCustomTTSOn: false });
+      if (sentenceList.length === 0) {
+        console.log('📄 [TOP TTS] No text on current page, trying next page...');
+        await this.props.htmlBook.rendition.next();
+        // Recursively try again
+        await this.startSmartTTS();
         return;
       }
+      
+      // Start processing sentences in chunks
+      await this.processTTSChunks(sentenceList, 0);
+      
+    } catch (error) {
+      console.error('💥 [TOP TTS] Smart TTS error:', error);
+      this.setState({ isCustomTTSOn: false });
+      toast.error(this.props.t("TTS service unavailable"));
+    }
+  };
 
-      // Detect language and choose API
-      const language = this.detectLanguage(text);
-      console.log('🌍 [TOP TTS] Detected language:', language);
-      console.log('🌍 [TOP TTS] Language detection details:', {
-        chineseCount: (text.match(/[\u4e00-\u9fff]/g) || []).length,
-        englishCount: (text.match(/[a-zA-Z]/g) || []).length
-      });
+  // Process TTS in manageable chunks
+  processTTSChunks = async (sentenceList: string[], startIndex: number) => {
+    if (!this.state.isCustomTTSOn) {
+      console.log('🛑 [TOP TTS] TTS stopped by user, aborting chunk processing');
+      return;
+    }
+    
+    if (startIndex >= sentenceList.length) {
+      console.log('📄 [TOP TTS] Finished all sentences, checking for page turn...');
+      await this.checkAndTurnPage(sentenceList);
+      return;
+    }
+    
+    try {
+      // Create chunk of sentences (max 3 sentences or 500 characters)
+      let chunk = '';
+      let chunkSentences = 0;
+      let currentIndex = startIndex;
       
-      let cleanText = text.replace(/[\r\n\t\f]/g, ' ').replace(/\s+/g, ' ').trim();
-      console.log('🧹 [TOP TTS] Cleaned text length:', cleanText.length);
-      
-      // Limit text length to prevent server crashes (max 1000 characters)
-      if (cleanText.length > 1000) {
-        console.log('✂️ [TOP TTS] Text length before truncation:', cleanText.length);
-        cleanText = cleanText.substring(0, 1000) + '...';
-        console.log('✂️ [TOP TTS] Text truncated to prevent server overload, new length:', cleanText.length);
-        toast.success(this.props.t("Text truncated to prevent server overload"));
+      while (currentIndex < sentenceList.length && chunkSentences < 3 && chunk.length < 500) {
+        const sentence = sentenceList[currentIndex].trim();
+        if (sentence) {
+          chunk += sentence + ' ';
+          chunkSentences++;
+        }
+        currentIndex++;
       }
       
-      console.log('📝 [TOP TTS] Final text to send (first 100 chars):', cleanText.substring(0, 100) + '...');
+      chunk = chunk.trim();
+      console.log(`📝 [TOP TTS] Processing chunk ${Math.floor(startIndex/3) + 1}: "${chunk.substring(0, 100)}..."`);
+      console.log(`📊 [TOP TTS] Chunk stats: ${chunkSentences} sentences, ${chunk.length} characters`);
       
-      let audioBlob;
+      if (!chunk) {
+        console.log('⏭️ [TOP TTS] Empty chunk, skipping to next...');
+        await this.processTTSChunks(sentenceList, currentIndex);
+        return;
+      }
       
-      if (language === 'zh') {
-        // Chinese TTS API
-        console.log('🇨🇳 [TOP TTS] Using Chinese TTS API');
-        const requestBody = {
-          text: cleanText,
-          speaker: 'ZH'
-        };
-        console.log('📡 [TOP TTS] Chinese API request body:', requestBody);
-        console.log('📡 [TOP TTS] Chinese API URL: https://ttszh.mattwu.cc/tts');
-        
-        const response = await fetch('https://ttszh.mattwu.cc/tts', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(requestBody)
+      // Detect language and process chunk
+      const language = this.detectLanguage(chunk);
+      console.log('🌍 [TOP TTS] Detected language for chunk:', language);
+      
+      const audioBlob = await this.generateTTSAudio(chunk, language);
+      
+      if (audioBlob) {
+        await this.playTTSChunk(audioBlob, () => {
+          // Continue with next chunk after this one finishes
+          this.processTTSChunks(sentenceList, currentIndex);
         });
-        
-        console.log('📡 [TOP TTS] Chinese API response status:', response.status);
-        console.log('📡 [TOP TTS] Chinese API response statusText:', response.statusText);
-        console.log('📡 [TOP TTS] Chinese API response headers:', Object.fromEntries(response.headers.entries()));
-        
-        if (!response.ok) {
-          console.error('❌ [TOP TTS] Chinese TTS API error:', response.status, response.statusText);
-          const errorText = await response.text();
-          console.error('❌ [TOP TTS] Chinese API error body:', errorText);
-          throw new Error(`Chinese TTS API error: ${response.status}`);
-        }
-        
-        audioBlob = await response.blob();
-        console.log('🎵 [TOP TTS] Chinese audio blob size:', audioBlob.size);
-        console.log('🎵 [TOP TTS] Chinese audio blob type:', audioBlob.type);
       } else {
-        // English TTS API
-        console.log('🇺🇸 [TOP TTS] Using English TTS API');
-        const apiUrl = `https://tts.mattwu.cc/api/tts?text=${encodeURIComponent(cleanText)}&speaker_id=p335`;
-        console.log('📡 [TOP TTS] English API URL:', apiUrl);
-        console.log('📡 [TOP TTS] English API encoded text length:', encodeURIComponent(cleanText).length);
-        
-        const response = await fetch(apiUrl);
-        
-        console.log('📡 [TOP TTS] English API response status:', response.status);
-        console.log('📡 [TOP TTS] English API response statusText:', response.statusText);
-        console.log('📡 [TOP TTS] English API response headers:', Object.fromEntries(response.headers.entries()));
-        
-        if (!response.ok) {
-          console.error('❌ [TOP TTS] English TTS API error:', response.status, response.statusText);
-          const errorText = await response.text();
-          console.error('❌ [TOP TTS] English API error body:', errorText);
-          throw new Error(`English TTS API error: ${response.status}`);
-        }
-        
-        audioBlob = await response.blob();
-        console.log('🎵 [TOP TTS] English audio blob size:', audioBlob.size);
-        console.log('🎵 [TOP TTS] English audio blob type:', audioBlob.type);
-      }
-
-      // Play audio
-      console.log('🎧 [TOP TTS] Creating audio object...');
-      const audioUrl = URL.createObjectURL(audioBlob);
-      console.log('🎧 [TOP TTS] Audio URL created:', audioUrl);
-      
-      this.currentAudio = new Audio(audioUrl);
-      console.log('🎧 [TOP TTS] Audio object created');
-      console.log('🎧 [TOP TTS] Audio readyState:', this.currentAudio.readyState);
-      console.log('🎧 [TOP TTS] Audio networkState:', this.currentAudio.networkState);
-      
-      this.currentAudio.onended = () => {
-        console.log('🏁 [TOP TTS] Audio playback ended');
-        URL.revokeObjectURL(audioUrl);
-        this.currentAudio = null;
-        this.setState({ isCustomTTSOn: false });
-      };
-      
-      this.currentAudio.onerror = (errorEvent) => {
-        console.error('❌ [TOP TTS] Audio error event:', errorEvent);
-        console.error('❌ [TOP TTS] Audio error details:', this.currentAudio?.error);
-        URL.revokeObjectURL(audioUrl);
-        this.currentAudio = null;
-        this.setState({ isCustomTTSOn: false });
-        toast.error(this.props.t("Audio playback failed"));
-      };
-      
-      this.currentAudio.onloadstart = () => {
-        console.log('📥 [TOP TTS] Audio load started');
-      };
-      
-      this.currentAudio.oncanplaythrough = () => {
-        console.log('✅ [TOP TTS] Audio can play through');
-      };
-      
-      try {
-        console.log('▶️ [TOP TTS] Starting audio playback...');
-        console.log('▶️ [TOP TTS] Audio duration:', this.currentAudio.duration);
-        console.log('▶️ [TOP TTS] Audio src:', this.currentAudio.src);
-        
-        await this.currentAudio.play();
-        console.log('✅ [TOP TTS] Audio playback started successfully');
-        console.log('✅ [TOP TTS] Audio current time:', this.currentAudio.currentTime);
-        console.log('✅ [TOP TTS] Audio paused:', this.currentAudio.paused);
-        
-        toast.success(this.props.t(`${language === 'zh' ? 'Chinese' : 'English'} TTS started`));
-      } catch (playError) {
-        console.error('❌ [TOP TTS] Audio play failed:', playError);
-        console.error('❌ [TOP TTS] Play error details:', {
-          name: playError.name,
-          message: playError.message,
-          stack: playError.stack
-        });
-        console.error('❌ [TOP TTS] Audio state during error:', {
-          readyState: this.currentAudio?.readyState,
-          networkState: this.currentAudio?.networkState,
-          error: this.currentAudio?.error
-        });
-        
-        URL.revokeObjectURL(audioUrl);
-        this.currentAudio = null;
-        this.setState({ isCustomTTSOn: false });
-        
-        if (playError.name === 'NotAllowedError') {
-          console.log('🔒 [TOP TTS] NotAllowedError - user interaction required');
-          toast.error(this.props.t("Please click the button to enable audio playback"));
-        } else {
-          toast.error(this.props.t("Audio playback failed"));
-        }
-        return;
+        // Skip to next chunk if this one failed
+        await this.processTTSChunks(sentenceList, currentIndex);
       }
       
     } catch (error) {
-      console.error('💥 [TOP TTS] Custom TTS error:', error);
-      console.error('💥 [TOP TTS] Error details:', {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      });
+      console.error('❌ [TOP TTS] Error processing chunk:', error);
+      // Continue with next chunk
+      await this.processTTSChunks(sentenceList, startIndex + 1);
+    }
+  };
+
+  // Generate TTS audio for a text chunk
+  generateTTSAudio = async (text: string, language: string): Promise<Blob | null> => {
+    try {
+      let response;
+      
+      if (language === 'zh') {
+        console.log('🇨🇳 [TOP TTS] Using Chinese TTS API for chunk');
+        response = await fetch('https://ttszh.mattwu.cc/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, speaker: 'ZH' })
+        });
+      } else {
+        console.log('🇺🇸 [TOP TTS] Using English TTS API for chunk');
+        response = await fetch(`https://tts.mattwu.cc/api/tts?text=${encodeURIComponent(text)}&speaker_id=p335`);
+      }
+      
+      console.log(`📡 [TOP TTS] ${language.toUpperCase()} API response:`, response.status);
+      
+      if (!response.ok) {
+        console.error(`❌ [TOP TTS] ${language.toUpperCase()} TTS API error:`, response.status);
+        return null;
+      }
+      
+      const audioBlob = await response.blob();
+      console.log(`🎵 [TOP TTS] ${language.toUpperCase()} audio blob size:`, audioBlob.size);
+      return audioBlob;
+      
+    } catch (error) {
+      console.error('❌ [TOP TTS] Error generating TTS audio:', error);
+      return null;
+    }
+  };
+
+  // Play a TTS audio chunk
+  playTTSChunk = async (audioBlob: Blob, onEnded: () => void): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      console.log('🎧 [TOP TTS] Playing TTS chunk...');
+      
+      const audioUrl = URL.createObjectURL(audioBlob);
+      this.currentAudio = new Audio(audioUrl);
+      
+      this.currentAudio.onended = () => {
+        console.log('🏁 [TOP TTS] Chunk playback ended');
+        URL.revokeObjectURL(audioUrl);
+        this.currentAudio = null;
+        resolve();
+        onEnded();
+      };
+      
+      this.currentAudio.onerror = (error) => {
+        console.error('❌ [TOP TTS] Chunk playback error:', error);
+        URL.revokeObjectURL(audioUrl);
+        this.currentAudio = null;
+        reject(error);
+      };
+      
+      this.currentAudio.play().catch(reject);
+    });
+  };
+
+  // Check if we need to turn page and continue TTS
+  checkAndTurnPage = async (completedSentences: string[]) => {
+    try {
+      console.log('📄 [TOP TTS] Checking if page turn is needed...');
+      
+      // Get current visible text to check if we're at the end
+      const visibleTexts = await this.props.htmlBook.rendition.visibleText();
+      const lastVisibleText = visibleTexts[visibleTexts.length - 1];
+      const lastVisibleSentences = splitSentences(lastVisibleText).filter(
+        (item) => item !== "img" && !item.startsWith("img")
+      );
+      
+      const lastSentenceRead = completedSentences[completedSentences.length - 1];
+      const lastSentenceOnPage = lastVisibleSentences[lastVisibleSentences.length - 1];
+      
+      console.log('📄 [TOP TTS] Last sentence read:', lastSentenceRead?.substring(0, 50) + '...');
+      console.log('📄 [TOP TTS] Last sentence on page:', lastSentenceOnPage?.substring(0, 50) + '...');
+      
+      if (lastSentenceRead === lastSentenceOnPage) {
+        console.log('📖 [TOP TTS] Reached end of page, turning to next page...');
+        await this.props.htmlBook.rendition.next();
+        toast.success(this.props.t("Turning to next page..."));
+        
+        // Continue TTS on next page
+        setTimeout(() => {
+          if (this.state.isCustomTTSOn) {
+            this.startSmartTTS();
+          }
+        }, 500); // Small delay to let page load
+      } else {
+        console.log('🏁 [TOP TTS] Finished reading current visible content');
+        this.setState({ isCustomTTSOn: false });
+        toast.success(this.props.t("TTS completed"));
+      }
+      
+    } catch (error) {
+      console.error('❌ [TOP TTS] Error checking page turn:', error);
       this.setState({ isCustomTTSOn: false });
-      toast.error(this.props.t("TTS service unavailable"));
     }
   };
 
@@ -535,7 +553,7 @@ class OperationPanel extends React.Component<
                   color: this.state.isCustomTTSOn ? 'white' : 'inherit'
                 }}
               >
-                <Trans>{this.state.isCustomTTSOn ? "Stop TTS" : "Smart TTS"}</Trans>
+                <Trans>{this.state.isCustomTTSOn ? "Stop TTS" : "NEW Smart TTS"}</Trans>
               </span>
             </div>
           </div>
