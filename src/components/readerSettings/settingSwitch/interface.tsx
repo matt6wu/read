@@ -23,5 +23,4 @@ export interface SettingSwitchState {
   isHidePageButton: boolean;
   isHideAIButton: boolean;
   isHideMenuButton: boolean;
-  isSmartTTSOn: boolean;
 }
