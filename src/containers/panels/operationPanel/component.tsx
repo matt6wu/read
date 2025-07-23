@@ -21,6 +21,7 @@ class OperationPanel extends React.Component<
   timeStamp: number;
   speed: number;
   timer: any;
+  currentAudio: HTMLAudioElement | null;
 
   constructor(props: OperationPanelProps) {
     super(props);
@@ -39,7 +40,9 @@ class OperationPanel extends React.Component<
           ).percentage
         : 0,
       timeLeft: 0,
+      isCustomTTSOn: false,
     };
+    this.currentAudio = null;
     this.timeStamp = Date.now();
     this.speed = 30000;
   }
@@ -82,6 +85,11 @@ class OperationPanel extends React.Component<
     this.props.handleSearch(false);
     window.speechSynthesis && window.speechSynthesis.cancel();
     TTSUtil.pauseAudio();
+    // Stop custom TTS audio
+    if (this.currentAudio) {
+      this.currentAudio.pause();
+      this.currentAudio = null;
+    }
     handleExitFullScreen();
     if (this.props.htmlBook) {
       this.props.handleHtmlBook(null);
@@ -152,6 +160,127 @@ class OperationPanel extends React.Component<
       }
     });
   }
+
+  // Custom TTS functionality
+  detectLanguage = (text: string): string => {
+    const chineseCount = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+    const englishCount = (text.match(/[a-zA-Z]/g) || []).length;
+    return chineseCount > englishCount ? 'zh' : 'en';
+  };
+
+  handleCustomTTS = async () => {
+    if (this.state.isCustomTTSOn) {
+      // Stop TTS
+      if (this.currentAudio) {
+        this.currentAudio.pause();
+        this.currentAudio = null;
+      }
+      this.setState({ isCustomTTSOn: false });
+      return;
+    }
+
+    try {
+      // Start TTS
+      this.setState({ isCustomTTSOn: true });
+      
+      // Get current visible text
+      if (!this.props.htmlBook || !this.props.htmlBook.rendition) {
+        toast.error(this.props.t("Book not ready for TTS"));
+        this.setState({ isCustomTTSOn: false });
+        return;
+      }
+      
+      const visibleTexts = await this.props.htmlBook.rendition.visibleText();
+      const text = visibleTexts.join(' ').trim();
+      
+      if (!text) {
+        toast.error(this.props.t("No text to read"));
+        this.setState({ isCustomTTSOn: false });
+        return;
+      }
+
+      // Detect language and choose API
+      const language = this.detectLanguage(text);
+      let cleanText = text.replace(/[\r\n\t\f]/g, ' ').replace(/\s+/g, ' ').trim();
+      
+      // Limit text length to prevent server crashes (max 1000 characters)
+      if (cleanText.length > 1000) {
+        cleanText = cleanText.substring(0, 1000) + '...';
+        toast.success(this.props.t("Text truncated to prevent server overload"));
+      }
+      
+      let audioBlob;
+      
+      if (language === 'zh') {
+        // Chinese TTS API
+        const response = await fetch('https://ttszh.mattwu.cc/tts', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            text: cleanText,
+            speaker: 'ZH'
+          })
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Chinese TTS API error: ${response.status}`);
+        }
+        
+        audioBlob = await response.blob();
+      } else {
+        // English TTS API
+        const response = await fetch(`https://tts.mattwu.cc/api/tts?text=${encodeURIComponent(cleanText)}&speaker_id=p335`);
+        
+        if (!response.ok) {
+          throw new Error(`English TTS API error: ${response.status}`);
+        }
+        
+        audioBlob = await response.blob();
+      }
+
+      // Play audio
+      const audioUrl = URL.createObjectURL(audioBlob);
+      this.currentAudio = new Audio(audioUrl);
+      
+      this.currentAudio.onended = () => {
+        URL.revokeObjectURL(audioUrl);
+        this.currentAudio = null;
+        this.setState({ isCustomTTSOn: false });
+      };
+      
+      this.currentAudio.onerror = () => {
+        URL.revokeObjectURL(audioUrl);
+        this.currentAudio = null;
+        this.setState({ isCustomTTSOn: false });
+        toast.error(this.props.t("Audio playback failed"));
+      };
+      
+      try {
+        await this.currentAudio.play();
+        toast.success(this.props.t(`${language === 'zh' ? 'Chinese' : 'English'} TTS started`));
+      } catch (playError) {
+        console.error('Audio play failed:', playError);
+        URL.revokeObjectURL(audioUrl);
+        this.currentAudio = null;
+        this.setState({ isCustomTTSOn: false });
+        
+        if (playError.name === 'NotAllowedError') {
+          toast.error(this.props.t("Please click the button to enable audio playback"));
+        } else {
+          toast.error(this.props.t("Audio playback failed"));
+        }
+        return;
+      }
+      
+    } catch (error) {
+      console.error('Custom TTS error:', error);
+      this.setState({ isCustomTTSOn: false });
+      toast.error(this.props.t("TTS service unavailable"));
+    }
+  };
+
   render() {
     return (
       <div className="book-operation-panel">
@@ -210,6 +339,32 @@ class OperationPanel extends React.Component<
               <span className="icon-add add-bookmark-icon"></span>
               <span className="add-bookmark-text">
                 <Trans>Bookmark</Trans>
+              </span>
+            </div>
+          </div>
+        </div>
+        <div
+          className="custom-tts-button"
+          onClick={this.handleCustomTTS}
+          style={{
+            backgroundColor: this.state.isCustomTTSOn ? '#23aaf2' : 'transparent'
+          }}
+        >
+          <div className="operation-button-container">
+            <div style={{ display: "flex", alignItems: "center" }}>
+              <span 
+                className="icon-sound custom-tts-icon"
+                style={{
+                  color: this.state.isCustomTTSOn ? 'white' : 'inherit'
+                }}
+              ></span>
+              <span 
+                className="custom-tts-text"
+                style={{
+                  color: this.state.isCustomTTSOn ? 'white' : 'inherit'
+                }}
+              >
+                <Trans>{this.state.isCustomTTSOn ? "Stop TTS" : "Smart TTS"}</Trans>
               </span>
             </div>
           </div>

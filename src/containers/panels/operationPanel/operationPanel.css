@@ -87,13 +87,47 @@
   opacity: 1;
   margin-left: 10px;
 }
+.custom-tts-button {
+  float: left;
+  width: 125px;
+  height: 37px;
+  background: rgba(35, 170, 242, 0.83);
+  opacity: 1;
+  margin-top: 11px;
+  margin-left: 20px;
+  cursor: pointer;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: 3px;
+  transition: all 0.3s ease;
+}
+.custom-tts-button:hover {
+  opacity: 0.8;
+}
+.custom-tts-icon {
+  font-size: 18px;
+  margin-left: 5px;
+}
+.custom-tts-text {
+  font-size: 13px;
+  line-height: 14px;
+  opacity: 1;
+  margin-left: 8px;
+  display: block;
+  width: 70%;
+}
 .book-operation-panel {
-  width: 450px !important;
+  width: 575px !important;
   height: 90px;
   opacity: 1;
   position: absolute;
   top: 0px;
-  left: calc(50% - 225px);
+  left: calc(50% - 287px);
   z-index: 10;
   animation: fade-down 0.1s ease-in-out 0s 1;
 }

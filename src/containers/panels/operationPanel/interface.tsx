@@ -30,4 +30,5 @@ export interface OperationPanelState {
   time: number;
   currentPercentage: number;
   timeLeft: number;
+  isCustomTTSOn: boolean;
 }
