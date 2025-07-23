@@ -212,11 +212,52 @@ class OperationPanel extends React.Component<
       );
       console.log('📄 [TOP TTS] Raw node text list:', nodeTextList);
       
-      // Split into sentences using existing utility
+      // Split into sentences using existing utility, then clean and merge fragments
       const rawNodeList = nodeTextList.map((text) => splitSentences(text));
-      const sentenceList = rawNodeList
+      let rawSentences = rawNodeList
         .flat()
-        .filter((item) => item !== "img" && !item.startsWith("img"));
+        .filter((item) => item !== "img" && !item.startsWith("img"))
+        .map(sentence => sentence.trim())
+        .filter(sentence => sentence.length > 0);
+      
+      // Smart sentence merging - combine fragments that were split incorrectly
+      let sentenceList: string[] = [];
+      let currentSentence = '';
+      
+      for (let i = 0; i < rawSentences.length; i++) {
+        const fragment = rawSentences[i];
+        
+        // Skip very short fragments that are just spaces or single characters
+        if (fragment.length <= 1 || fragment === ' ') {
+          continue;
+        }
+        
+        currentSentence += fragment;
+        
+        // Check if this looks like end of sentence
+        const endsWithPunctuation = /[.!?。！？]$/.test(fragment);
+        const nextFragmentStartsCapital = i + 1 < rawSentences.length && 
+          /^[A-Z\u4e00-\u9fff]/.test(rawSentences[i + 1]);
+        
+        // If reasonable length and ends properly, or if very long, finish sentence
+        if ((endsWithPunctuation && currentSentence.length > 10) || 
+            currentSentence.length > 200) {
+          if (currentSentence.trim().length > 5) {
+            sentenceList.push(currentSentence.trim());
+          }
+          currentSentence = '';
+        } else if (!endsWithPunctuation && currentSentence.length > 5) {
+          // Add space if not ending with punctuation
+          currentSentence += ' ';
+        }
+      }
+      
+      // Add final sentence if exists
+      if (currentSentence.trim().length > 5) {
+        sentenceList.push(currentSentence.trim());
+      }
+      
+      console.log('🧹 [TOP TTS] Smart merged sentences (first 10):', sentenceList.slice(0, 10));
       
       console.log('📄 [TOP TTS] Total sentences found:', sentenceList.length);
       console.log('📄 [TOP TTS] First few sentences:', sentenceList.slice(0, 3));
@@ -253,18 +294,30 @@ class OperationPanel extends React.Component<
     }
     
     try {
-      // Create chunk of sentences (max 3 sentences or 500 characters)
+      // Create chunk of sentences (aim for ~200-500 characters or complete sentences)
       let chunk = '';
       let chunkSentences = 0;
       let currentIndex = startIndex;
       
-      while (currentIndex < sentenceList.length && chunkSentences < 3 && chunk.length < 500) {
+      // Keep adding sentences until we have a reasonable chunk
+      while (currentIndex < sentenceList.length && chunk.length < 400) {
         const sentence = sentenceList[currentIndex].trim();
         if (sentence) {
+          // Check if adding this sentence would make chunk too long
+          const testChunk = chunk + sentence + ' ';
+          if (testChunk.length > 500 && chunk.length > 100) {
+            // If chunk is already substantial, stop here
+            break;
+          }
           chunk += sentence + ' ';
           chunkSentences++;
         }
         currentIndex++;
+        
+        // Don't make chunks too small unless we're at the end
+        if (chunkSentences >= 3 && chunk.length >= 150) {
+          break;
+        }
       }
       
       chunk = chunk.trim();
