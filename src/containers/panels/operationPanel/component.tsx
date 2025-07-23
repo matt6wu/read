@@ -23,6 +23,7 @@ class OperationPanel extends React.Component<
   speed: number;
   timer: any;
   currentAudio: HTMLAudioElement | null;
+  audioCache: Map<number, Blob>;
 
   constructor(props: OperationPanelProps) {
     super(props);
@@ -44,6 +45,7 @@ class OperationPanel extends React.Component<
       isCustomTTSOn: false,
     };
     this.currentAudio = null;
+    this.audioCache = new Map();
     this.timeStamp = Date.now();
     this.speed = 30000;
   }
@@ -181,12 +183,16 @@ class OperationPanel extends React.Component<
         this.currentAudio = null;
         console.log('⏸️ [TOP TTS] Audio stopped and cleared');
       }
+      // Clear audio cache when stopping
+      this.audioCache.clear();
+      console.log('🗑️ [TOP TTS] Audio cache cleared');
       this.setState({ isCustomTTSOn: false });
       console.log('✅ [TOP TTS] TTS stopped successfully');
       return;
     }
 
-    // Start Smart TTS with chunking
+    // Clear cache and start Smart TTS with chunking
+    this.audioCache.clear();
     await this.startSmartTTS();
   };
 
@@ -280,7 +286,7 @@ class OperationPanel extends React.Component<
     }
   };
 
-  // Process TTS in manageable chunks
+  // Process TTS in manageable chunks with preloading
   processTTSChunks = async (sentenceList: string[], startIndex: number) => {
     if (!this.state.isCustomTTSOn) {
       console.log('🛑 [TOP TTS] TTS stopped by user, aborting chunk processing');
@@ -294,60 +300,45 @@ class OperationPanel extends React.Component<
     }
     
     try {
-      // Create chunk of sentences (aim for ~200-500 characters or complete sentences)
-      let chunk = '';
-      let chunkSentences = 0;
-      let currentIndex = startIndex;
+      // Create current chunk
+      const { chunk: currentChunk, nextIndex: currentNextIndex } = this.createChunk(sentenceList, startIndex);
       
-      // Keep adding sentences until we have a reasonable chunk
-      while (currentIndex < sentenceList.length && chunk.length < 400) {
-        const sentence = sentenceList[currentIndex].trim();
-        if (sentence) {
-          // Check if adding this sentence would make chunk too long
-          const testChunk = chunk + sentence + ' ';
-          if (testChunk.length > 500 && chunk.length > 100) {
-            // If chunk is already substantial, stop here
-            break;
-          }
-          chunk += sentence + ' ';
-          chunkSentences++;
-        }
-        currentIndex++;
-        
-        // Don't make chunks too small unless we're at the end
-        if (chunkSentences >= 3 && chunk.length >= 150) {
-          break;
-        }
-      }
-      
-      chunk = chunk.trim();
-      console.log(`📝 [TOP TTS] Processing chunk ${Math.floor(startIndex/3) + 1}: "${chunk.substring(0, 100)}..."`);
-      console.log(`📊 [TOP TTS] Chunk stats: ${chunkSentences} sentences, ${chunk.length} characters`);
-      
-      if (!chunk) {
+      if (!currentChunk) {
         console.log('⏭️ [TOP TTS] Empty chunk, skipping to next...');
-        await this.processTTSChunks(sentenceList, currentIndex);
+        await this.processTTSChunks(sentenceList, currentNextIndex);
         return;
       }
       
-      // Detect language and process chunk
-      const language = this.detectLanguage(chunk);
-      console.log('🌍 [TOP TTS] Detected language for chunk:', language);
+      console.log(`📝 [TOP TTS] Processing chunk ${Math.floor(startIndex/3) + 1}: "${currentChunk.substring(0, 100)}..."`);
+      console.log(`📊 [TOP TTS] Chunk stats: ${currentChunk.length} characters`);
       
-      const audioBlob = await this.generateTTSAudio(chunk, language);
+      // Check if we have this chunk cached
+      let audioBlob: Blob | null = this.audioCache.get(startIndex) || null;
+      
+      if (!audioBlob) {
+        // Generate audio for current chunk
+        const language = this.detectLanguage(currentChunk);
+        console.log('🌍 [TOP TTS] Detected language for chunk:', language);
+        audioBlob = await this.generateTTSAudio(currentChunk, language);
+      } else {
+        console.log('⚡ [TOP TTS] Using cached audio for current chunk');
+      }
+      
+      // Start preloading next chunk while current one plays
+      this.preloadNextChunk(sentenceList, currentNextIndex);
       
       if (audioBlob) {
         await this.playTTSChunk(audioBlob, () => {
           // Add small delay before next chunk to prevent server overload
           setTimeout(() => {
-            this.processTTSChunks(sentenceList, currentIndex);
+            this.processTTSChunks(sentenceList, currentNextIndex);
           }, 500); // 500ms delay between chunks
         });
       } else {
         console.log('⏭️ [TOP TTS] Chunk failed, waiting before retry...');
         // Add delay even for failed chunks to avoid hammering server
         setTimeout(() => {
-          this.processTTSChunks(sentenceList, currentIndex);
+          this.processTTSChunks(sentenceList, currentNextIndex);
         }, 2000); // 2 second delay for failed requests
       }
       
@@ -355,6 +346,73 @@ class OperationPanel extends React.Component<
       console.error('❌ [TOP TTS] Error processing chunk:', error);
       // Continue with next chunk
       await this.processTTSChunks(sentenceList, startIndex + 1);
+    }
+  };
+
+  // Helper function to create a chunk from sentences
+  createChunk = (sentenceList: string[], startIndex: number): { chunk: string, nextIndex: number } => {
+    let chunk = '';
+    let chunkSentences = 0;
+    let currentIndex = startIndex;
+    
+    // Keep adding sentences until we have a reasonable chunk
+    while (currentIndex < sentenceList.length && chunk.length < 400) {
+      const sentence = sentenceList[currentIndex].trim();
+      if (sentence) {
+        // Check if adding this sentence would make chunk too long
+        const testChunk = chunk + sentence + ' ';
+        if (testChunk.length > 500 && chunk.length > 100) {
+          // If chunk is already substantial, stop here
+          break;
+        }
+        chunk += sentence + ' ';
+        chunkSentences++;
+      }
+      currentIndex++;
+      
+      // Don't make chunks too small unless we're at the end
+      if (chunkSentences >= 3 && chunk.length >= 150) {
+        break;
+      }
+    }
+    
+    return { chunk: chunk.trim(), nextIndex: currentIndex };
+  };
+
+  // Preload next chunk in background while current chunk plays
+  preloadNextChunk = async (sentenceList: string[], nextStartIndex: number) => {
+    if (nextStartIndex >= sentenceList.length) {
+      console.log('📄 [TOP TTS] No next chunk to preload - at end of sentences');
+      return;
+    }
+    
+    // Check if already cached
+    if (this.audioCache.has(nextStartIndex)) {
+      console.log('⚡ [TOP TTS] Next chunk already cached');
+      return;
+    }
+    
+    try {
+      console.log('🔄 [TOP TTS] Preloading next chunk in background...');
+      
+      const { chunk: nextChunk } = this.createChunk(sentenceList, nextStartIndex);
+      
+      if (nextChunk) {
+        const language = this.detectLanguage(nextChunk);
+        console.log(`🔄 [TOP TTS] Preloading ${language} chunk: "${nextChunk.substring(0, 50)}..."`);
+        
+        // Generate audio in background
+        const audioBlob = await this.generateTTSAudio(nextChunk, language);
+        
+        if (audioBlob) {
+          this.audioCache.set(nextStartIndex, audioBlob);
+          console.log('✅ [TOP TTS] Next chunk preloaded and cached successfully');
+        } else {
+          console.log('❌ [TOP TTS] Failed to preload next chunk');
+        }
+      }
+    } catch (error) {
+      console.error('❌ [TOP TTS] Error preloading next chunk:', error);
     }
   };
 
@@ -499,14 +557,43 @@ class OperationPanel extends React.Component<
               const newPageInfo = await this.props.htmlBook.rendition.getPosition();
               console.log('📍 [TOP TTS] New page after turn:', newPageInfo);
               
-              // Only continue if we actually moved to a different page
-              if (JSON.stringify(currentPageInfo) !== JSON.stringify(newPageInfo)) {
-                console.log('✅ [TOP TTS] Successfully turned page, continuing TTS...');
+              // Check if page actually changed by comparing content, not just position
+              const newVisibleTexts = await this.props.htmlBook.rendition.visibleText();
+              const newVisibleContent = newVisibleTexts.join(' ').substring(0, 200);
+              const oldVisibleContent = visibleTexts.join(' ').substring(0, 200);
+              
+              console.log('📄 [TOP TTS] Old page content:', oldVisibleContent.substring(0, 80) + '...');
+              console.log('📄 [TOP TTS] New page content:', newVisibleContent.substring(0, 80) + '...');
+              
+              // Compare actual content to detect real page change
+              const contentChanged = newVisibleContent !== oldVisibleContent;
+              
+              // Also check if we have new content to read
+              const newNodeTextList = (await this.props.htmlBook.rendition.audioText()).filter(
+                (item: string) => item && item.trim()
+              );
+              const hasNewContent = newNodeTextList.length > 0;
+              
+              console.log('📊 [TOP TTS] Content changed:', contentChanged);
+              console.log('📊 [TOP TTS] Has new content:', hasNewContent, `(${newNodeTextList.length} items)`);
+              
+              if (contentChanged && hasNewContent) {
+                console.log('✅ [TOP TTS] Successfully turned page with new content, continuing TTS...');
                 this.startSmartTTS();
-              } else {
-                console.log('⚠️ [TOP TTS] Page did not change, stopping TTS');
+              } else if (!hasNewContent) {
+                console.log('📚 [TOP TTS] No more content to read - reached end of book');
                 this.setState({ isCustomTTSOn: false });
                 toast.success(this.props.t("TTS completed - end of book"));
+              } else {
+                console.log('🔄 [TOP TTS] Content unchanged, trying to continue anyway...');
+                // Sometimes page turn is successful but content appears same
+                // Try to continue anyway after a longer delay
+                setTimeout(() => {
+                  if (this.state.isCustomTTSOn) {
+                    console.log('🔄 [TOP TTS] Retrying TTS after longer delay...');
+                    this.startSmartTTS();
+                  }
+                }, 1000);
               }
             } catch (error) {
               console.error('❌ [TOP TTS] Error verifying page turn:', error);
