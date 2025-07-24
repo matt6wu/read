@@ -1388,9 +1388,9 @@ class OperationPanel extends React.Component<
       if (bestMatch) {
         const parent = bestMatch.textNode.parentElement;
         if (parent && parent.ownerDocument) {
-          // Create a highlight span
+          // Create a highlight span with yellow background
           const highlightSpan = parent.ownerDocument.createElement('span');
-          highlightSpan.style.setProperty('background-color', '#76BEE9', 'important');
+          highlightSpan.style.setProperty('background-color', '#FFFF00', 'important');
           highlightSpan.style.setProperty('color', '#000000', 'important');
           highlightSpan.style.setProperty('border-radius', '3px', 'important');
           highlightSpan.style.setProperty('padding', '1px 2px', 'important');
