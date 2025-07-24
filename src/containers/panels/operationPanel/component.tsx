@@ -17,6 +17,15 @@ import { handleExitFullScreen, handleFullScreen } from "../../../utils/common";
 import DatabaseService from "../../../utils/storage/databaseService";
 import BookLocation from "../../../models/BookLocation";
 declare var window: any;
+
+// Text match result interface
+interface TextMatchResult {
+  start: number;
+  end: number;
+  confidence: number;
+  matchedText: string;
+}
+
 class OperationPanel extends React.Component<
   OperationPanelProps,
   OperationPanelState
@@ -848,7 +857,7 @@ class OperationPanel extends React.Component<
     }
   };
 
-  // Create programmatic text selection (simulate user text selection)
+  // Create programmatic text selection with improved fuzzy matching
   createProgrammaticSelection = async (chunkText: string): Promise<boolean> => {
     try {
       console.log(`🔍 [SELECTION] Looking for text to select: "${chunkText.substring(0, 50)}..."`);
@@ -862,7 +871,7 @@ class OperationPanel extends React.Component<
       
       const doc = iframe.contentDocument;
       
-      // Import the Selection and Range APIs
+      // Import the Selection and Range APIs  
       const selection = doc.getSelection();
       if (!selection) {
         console.log('❌ [SELECTION] No selection API available');
@@ -872,87 +881,268 @@ class OperationPanel extends React.Component<
       // Clear any existing selection
       selection.removeAllRanges();
       
-      // Find the text in the document
+      // Get all text content from the document
+      const allText = doc.body ? doc.body.innerText || doc.body.textContent || '' : '';
+      const normalizedAllText = this.normalizeTextForMatching(allText);
+      const normalizedChunkText = this.normalizeTextForMatching(chunkText);
+      
+      console.log(`📝 [SELECTION] Normalized chunk: "${normalizedChunkText.substring(0, 60)}..."`);
+      console.log(`📄 [SELECTION] Document has ${normalizedAllText.split(' ').length} words total`);
+      
+      // Try multiple matching strategies
+      const matchResult = this.findBestTextMatch(normalizedChunkText, normalizedAllText);
+      
+      if (!matchResult) {
+        console.log('❌ [SELECTION] No suitable text match found in document');
+        return false;
+      }
+      
+      console.log(`✅ [SELECTION] Found match at position ${matchResult.start}-${matchResult.end} with ${matchResult.confidence.toFixed(2)} confidence`);
+      
+      // Create DOM selection based on the text match
+      const selectionSuccess = await this.createDOMSelectionFromTextMatch(doc, matchResult, allText);
+      
+      if (!selectionSuccess) {
+        console.log('❌ [SELECTION] Failed to create DOM selection from text match');
+        return false;
+      }
+      
+      // Verify the final selection
+      const selectedText = selection.toString();
+      const normalizedSelected = this.normalizeTextForMatching(selectedText);
+      const finalConfidence = this.calculateTextSimilarity(normalizedChunkText, normalizedSelected);
+      
+      console.log(`📊 [SELECTION] Final selection confidence: ${finalConfidence.toFixed(2)}`);
+      console.log(`✅ [SELECTION] Selected text: "${selectedText.substring(0, 60).replace(/\n/g, ' ')}..."`);
+      
+      if (finalConfidence < 0.2) {
+        console.log('❌ [SELECTION] Final selection confidence too low, clearing');
+        selection.removeAllRanges();
+        return false;
+      }
+      
+      console.log('✅ [SELECTION] Programmatic selection created successfully!');
+      return true;
+      
+    } catch (error) {
+      console.error('❌ [SELECTION] Error creating programmatic selection:', error);
+      return false;
+    }
+  };
+
+  // Normalize text for better matching (remove extra spaces, punctuation variations)
+  normalizeTextForMatching = (text: string): string => {
+    return text
+      .toLowerCase()
+      .replace(/['']/g, "'")          // Normalize quotes
+      .replace(/[""]/g, '"')          // Normalize double quotes  
+      .replace(/…/g, '...')           // Normalize ellipsis
+      .replace(/–/g, '-')             // Normalize dashes
+      .replace(/\s+/g, ' ')           // Normalize whitespace
+      .replace(/[^\w\s'".-]/g, ' ')   // Keep only basic punctuation
+      .trim();
+  };
+
+  // Find the best text match using multiple strategies
+  findBestTextMatch = (chunkText: string, docText: string): TextMatchResult | null => {
+    const chunkWords = chunkText.split(' ').filter(word => word.length > 2);
+    
+    if (chunkWords.length < 3) {
+      console.log('⚠️ [SELECTION] Chunk too short for reliable matching');
+      return null;
+    }
+    
+    // Strategy 1: Direct substring match
+    let match = this.findDirectMatch(chunkText, docText);
+    if (match && match.confidence > 0.8) {
+      console.log('✅ [SELECTION] Found direct substring match');
+      return match;
+    }
+    
+    // Strategy 2: Sliding window with fuzzy matching
+    match = this.findSlidingWindowMatch(chunkWords, docText);
+    if (match && match.confidence > 0.6) {
+      console.log('✅ [SELECTION] Found sliding window match');
+      return match;
+    }
+    
+    // Strategy 3: Keyword density matching
+    match = this.findKeywordDensityMatch(chunkWords, docText);
+    if (match && match.confidence > 0.4) {
+      console.log('✅ [SELECTION] Found keyword density match');
+      return match;
+    }
+    
+    console.log('❌ [SELECTION] No reliable match found with any strategy');
+    return null;
+  };
+
+  // Strategy 1: Direct substring matching
+  findDirectMatch = (chunkText: string, docText: string): TextMatchResult | null => {
+    const index = docText.indexOf(chunkText);
+    if (index >= 0) {
+      return {
+        start: index,
+        end: index + chunkText.length,
+        confidence: 1.0,
+        matchedText: chunkText
+      };
+    }
+    
+    // Try with slight variations
+    const variations = [
+      chunkText.replace(/\s+/g, ' '),           // Normalize spaces
+      chunkText.replace(/[.!?]+/g, '.'),        // Normalize punctuation
+      chunkText.replace(/["']/g, ''),           // Remove quotes
+      chunkText.substring(0, Math.floor(chunkText.length * 0.9))  // Partial match
+    ];
+    
+    for (const variation of variations) {
+      const idx = docText.indexOf(variation);
+      if (idx >= 0) {
+        const confidence = variation.length / chunkText.length;
+        return {
+          start: idx,
+          end: idx + variation.length,
+          confidence: confidence * 0.9, // Slight penalty for variation
+          matchedText: variation
+        };
+      }
+    }
+    
+    return null;
+  };
+
+  // Strategy 2: Sliding window matching
+  findSlidingWindowMatch = (chunkWords: string[], docText: string): TextMatchResult | null => {
+    const docWords = docText.split(' ');
+    const windowSize = Math.min(chunkWords.length, 20);
+    let bestMatch: TextMatchResult | null = null;
+    let bestScore = 0;
+    
+    for (let i = 0; i <= docWords.length - windowSize; i++) {
+      const window = docWords.slice(i, i + windowSize);
+      const windowText = window.join(' ');
+      
+      const similarity = this.calculateTextSimilarity(
+        chunkWords.slice(0, windowSize).join(' '),
+        windowText
+      );
+      
+      if (similarity > bestScore && similarity > 0.5) {
+        bestScore = similarity;
+        const startPos = docText.indexOf(windowText);
+        if (startPos >= 0) {
+          bestMatch = {
+            start: startPos,
+            end: startPos + windowText.length,
+            confidence: similarity,
+            matchedText: windowText
+          };
+        }
+      }
+    }
+    
+    return bestMatch;
+  };
+
+  // Strategy 3: Keyword density matching
+  findKeywordDensityMatch = (chunkWords: string[], docText: string): TextMatchResult | null => {
+    const docWords = docText.split(' ');
+    const significantWords = chunkWords.filter(word => word.length > 3); // Focus on significant words
+    
+    if (significantWords.length < 2) return null;
+    
+    const windowSize = Math.min(chunkWords.length * 2, 50); // Larger window for keyword matching
+    let bestMatch: TextMatchResult | null = null;
+    let bestDensity = 0;
+    
+    for (let i = 0; i <= docWords.length - windowSize; i++) {
+      const window = docWords.slice(i, i + windowSize);
+      const windowText = window.join(' ').toLowerCase();
+      
+      // Count how many significant words appear in this window
+      const foundWords = significantWords.filter(word => windowText.includes(word));
+      const density = foundWords.length / significantWords.length;
+      
+      if (density > bestDensity && density > 0.4) {
+        bestDensity = density;
+        const windowStr = window.join(' ');
+        const startPos = docText.indexOf(windowStr);
+        if (startPos >= 0) {
+          bestMatch = {
+            start: startPos,
+            end: startPos + windowStr.length,
+            confidence: density * 0.8, // Lower confidence for keyword matching
+            matchedText: windowStr
+          };
+        }
+      }
+    }
+    
+    return bestMatch;
+  };
+
+  // Calculate text similarity between two strings
+  calculateTextSimilarity = (text1: string, text2: string): number => {
+    const words1 = text1.split(' ').filter(w => w.length > 2);
+    const words2 = text2.split(' ').filter(w => w.length > 2);
+    
+    if (words1.length === 0 || words2.length === 0) return 0;
+    
+    const commonWords = words1.filter(word => words2.includes(word));
+    const similarity = (2 * commonWords.length) / (words1.length + words2.length);
+    
+    return similarity;
+  };
+
+  // Create DOM selection from text position match
+  createDOMSelectionFromTextMatch = async (doc: Document, match: any, fullText: string): Promise<boolean> => {
+    try {
+      const selection = doc.getSelection();
+      if (!selection) return false;
+      
+      // Find the DOM nodes that correspond to our text match
       const walker = doc.createTreeWalker(
         doc.body || doc.documentElement,
         NodeFilter.SHOW_TEXT,
         null
       );
       
-      const cleanChunkText = chunkText.toLowerCase().replace(/\s+/g, ' ').trim();
-      const chunkWords = cleanChunkText.split(' ');
-      
-      // Look for text nodes that contain our chunk
+      let currentPos = 0;
       let startNode: Text | null = null;
       let startOffset = 0;
       let endNode: Text | null = null;
       let endOffset = 0;
       
-      const textNodes: Text[] = [];
       let node;
       while (node = walker.nextNode()) {
-        if (node.textContent && node.textContent.trim().length > 3) {
-          textNodes.push(node as Text);
-        }
-      }
-      
-      // Find the best matching text sequence
-      for (let i = 0; i < textNodes.length; i++) {
-        const textNode = textNodes[i];
-        const nodeText = textNode.textContent?.toLowerCase().replace(/\s+/g, ' ').trim();
+        const textNode = node as Text;
+        const nodeText = textNode.textContent || '';
+        const nodeStart = currentPos;
+        const nodeEnd = currentPos + nodeText.length;
         
-        if (nodeText && nodeText.length > 10) {
-          // Check if this node contains the start of our text
-          const firstWords = chunkWords.slice(0, 3).join(' ');
-          const startIndex = nodeText.indexOf(firstWords);
-          
-          if (startIndex >= 0) {
-            startNode = textNode;
-            startOffset = textNode.textContent!.toLowerCase().indexOf(firstWords);
-            
-            // Try to find the end in the same node or subsequent nodes
-            let searchText = nodeText.substring(startIndex);
-            let currentLength = searchText.length;
-            let currentNode = textNode;
-            
-            // Check if the chunk ends in this node
-            const lastWords = chunkWords.slice(-3).join(' ');
-            const endIndex = searchText.indexOf(lastWords);
-            
-            if (endIndex >= 0) {
-              // Ends in the same node
-              endNode = textNode;
-              endOffset = startOffset + endIndex + lastWords.length;
-            } else {
-              // Look in subsequent nodes
-              for (let j = i + 1; j < Math.min(i + 5, textNodes.length); j++) {
-                const nextNode = textNodes[j];
-                const nextText = nextNode.textContent?.toLowerCase().replace(/\s+/g, ' ').trim();
-                
-                if (nextText) {
-                  searchText += ' ' + nextText;
-                  const endIndexInExtended = searchText.indexOf(lastWords);
-                  
-                  if (endIndexInExtended >= 0) {
-                    endNode = nextNode;
-                    const endInNextNode = nextText.indexOf(lastWords);
-                    endOffset = endInNextNode >= 0 ? endInNextNode + lastWords.length : nextText.length;
-                    break;
-                  }
-                }
-              }
-            }
-            
-            if (endNode) {
-              break; // Found both start and end
-            }
-          }
+        // Check if match start is in this node
+        if (!startNode && match.start >= nodeStart && match.start < nodeEnd) {
+          startNode = textNode;
+          startOffset = match.start - nodeStart;
         }
+        
+        // Check if match end is in this node
+        if (match.end > nodeStart && match.end <= nodeEnd) {
+          endNode = textNode;
+          endOffset = match.end - nodeStart;
+          break;
+        }
+        
+        currentPos = nodeEnd;
       }
       
+      // Fallback: if we can't find exact positions, use first significant text node
       if (!startNode || !endNode) {
-        console.log('❌ [SELECTION] Could not find text boundaries for selection');
-        return false;
+        console.log('⚠️ [SELECTION] Exact positioning failed, using fallback selection');
+        const fallbackResult = this.createFallbackSelection(doc, match.matchedText);
+        return fallbackResult;
       }
       
       // Create the range
@@ -960,33 +1150,59 @@ class OperationPanel extends React.Component<
       range.setStart(startNode, Math.max(0, startOffset));
       range.setEnd(endNode, Math.min(endNode.textContent!.length, endOffset));
       
-      // Add the range to selection
       selection.addRange(range);
-      
-      // Verify the selection
-      const selectedText = selection.toString().replace(/\s+/g, ' ').trim();
-      console.log(`✅ [SELECTION] Created selection: "${selectedText.substring(0, 50)}..."`);
-      
-      // Check if selection is reasonable (at least 30% overlap)
-      const selectedWords = selectedText.toLowerCase().split(' ');
-      const matchingWords = chunkWords.filter(word => 
-        selectedWords.some(selWord => selWord.includes(word) || word.includes(selWord))
-      );
-      
-      const matchRatio = matchingWords.length / chunkWords.length;
-      console.log(`📊 [SELECTION] Match ratio: ${matchRatio.toFixed(2)} (${matchingWords.length}/${chunkWords.length})`);
-      
-      if (matchRatio < 0.3) {
-        console.log('❌ [SELECTION] Selection match ratio too low, clearing selection');
-        selection.removeAllRanges();
-        return false;
-      }
-      
-      console.log('✅ [SELECTION] Programmatic selection created successfully');
       return true;
       
     } catch (error) {
-      console.error('❌ [SELECTION] Error creating programmatic selection:', error);
+      console.error('❌ [SELECTION] Error creating DOM selection:', error);
+      return false;
+    }
+  };
+
+  // Fallback selection method using simple text search
+  createFallbackSelection = (doc: Document, targetText: string): boolean => {
+    try {
+      const selection = doc.getSelection();
+      if (!selection) return false;
+      
+      // Find any text node that contains part of our target
+      const walker = doc.createTreeWalker(
+        doc.body || doc.documentElement,
+        NodeFilter.SHOW_TEXT,
+        null
+      );
+      
+      const targetWords = targetText.toLowerCase().split(' ').filter(w => w.length > 3);
+      
+      let node;
+      while (node = walker.nextNode()) {
+        const textNode = node as Text;
+        const nodeText = (textNode.textContent || '').toLowerCase();
+        
+        // Check if this node contains several of our target words
+        const matchCount = targetWords.filter(word => nodeText.includes(word)).length;
+        
+        if (matchCount >= Math.min(3, Math.ceil(targetWords.length * 0.5))) {
+          // Select a reasonable portion of this text node
+          const range = doc.createRange();
+          const nodeLength = textNode.textContent!.length;
+          const startOffset = Math.max(0, Math.floor(nodeLength * 0.1));
+          const endOffset = Math.min(nodeLength, Math.floor(nodeLength * 0.9));
+          
+          range.setStart(textNode, startOffset);
+          range.setEnd(textNode, endOffset);
+          selection.addRange(range);
+          
+          console.log(`✅ [SELECTION] Created fallback selection in node with ${matchCount} matching words`);
+          return true;
+        }
+      }
+      
+      console.log('❌ [SELECTION] Fallback selection also failed');
+      return false;
+      
+    } catch (error) {
+      console.error('❌ [SELECTION] Error in fallback selection:', error);
       return false;
     }
   };
