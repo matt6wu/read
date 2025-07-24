@@ -862,14 +862,32 @@ class OperationPanel extends React.Component<
     try {
       console.log(`🔍 [SELECTION] Looking for text to select: "${chunkText.substring(0, 50)}..."`);
       
-      // Get iframe document
-      const iframe = document.getElementById('kookit-iframe') as HTMLIFrameElement;
-      if (!iframe || !iframe.contentDocument) {
-        console.log('❌ [SELECTION] No iframe document found');
+      // Get iframe document with multiple attempts
+      let iframe = document.getElementById('kookit-iframe') as HTMLIFrameElement;
+      
+      // Try alternative iframe selectors if main one not found
+      if (!iframe) {
+        iframe = document.querySelector('iframe') as HTMLIFrameElement;
+        console.log('⚠️ [SELECTION] Main iframe not found, trying first iframe');
+      }
+      
+      if (!iframe) {
+        console.log('❌ [SELECTION] No iframe found at all');
         return false;
       }
       
-      const doc = iframe.contentDocument;
+      console.log(`📄 [SELECTION] Found iframe: ${iframe.id || 'unnamed'}, src: ${iframe.src || 'no src'}`);
+      
+      // Wait a moment for iframe to be ready
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      const doc = iframe.contentDocument || iframe.contentWindow?.document;
+      if (!doc) {
+        console.log('❌ [SELECTION] No iframe document accessible');
+        return false;
+      }
+      
+      console.log(`📄 [SELECTION] Document ready state: ${doc.readyState}`);
       
       // Import the Selection and Range APIs  
       const selection = doc.getSelection();
@@ -881,13 +899,60 @@ class OperationPanel extends React.Component<
       // Clear any existing selection
       selection.removeAllRanges();
       
-      // Get all text content from the document
-      const allText = doc.body ? doc.body.innerText || doc.body.textContent || '' : '';
+      // Get all text content from the document with multiple methods
+      let allText = '';
+      
+      console.log(`📄 [SELECTION] Document structure:`, {
+        hasBody: !!doc.body,
+        bodyChildren: doc.body?.children?.length || 0,
+        documentElement: doc.documentElement?.tagName,
+        title: doc.title || 'no title'
+      });
+      
+      // Wait for content to be available (especially for dynamic content)
+      let retries = 0;
+      while (retries < 3) {
+        // Method 1: Try innerText first (respects visibility)
+        if (doc.body?.innerText && doc.body.innerText.trim().length > 50) {
+          allText = doc.body.innerText;
+          console.log(`✅ [SELECTION] Got ${allText.length} chars from innerText`);
+          break;
+        }
+        // Method 2: Fallback to textContent
+        else if (doc.body?.textContent && doc.body.textContent.trim().length > 50) {
+          allText = doc.body.textContent;
+          console.log(`✅ [SELECTION] Got ${allText.length} chars from textContent`);
+          break;
+        }
+        // Method 3: Extract from all text nodes manually
+        else {
+          console.log(`⚠️ [SELECTION] Attempt ${retries + 1}: Using manual text extraction`);
+          allText = this.extractAllTextFromDOM(doc);
+          if (allText.length > 50) {
+            console.log(`✅ [SELECTION] Got ${allText.length} chars from manual extraction`);
+            break;
+          }
+        }
+        
+        // Wait a bit more for content to load
+        if (retries < 2) {
+          console.log(`⏳ [SELECTION] Waiting for content to load (attempt ${retries + 1}/3)`);
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+        retries++;
+      }
+      
       const normalizedAllText = this.normalizeTextForMatching(allText);
       const normalizedChunkText = this.normalizeTextForMatching(chunkText);
       
       console.log(`📝 [SELECTION] Normalized chunk: "${normalizedChunkText.substring(0, 60)}..."`);
-      console.log(`📄 [SELECTION] Document has ${normalizedAllText.split(' ').length} words total`);
+      console.log(`📄 [SELECTION] Document has ${normalizedAllText.split(' ').filter(w => w.length > 0).length} words total`);
+      console.log(`📄 [SELECTION] Document preview: "${normalizedAllText.substring(0, 150)}..."`);
+      
+      if (normalizedAllText.length < 50) {
+        console.log('❌ [SELECTION] Document text too short, may be extraction issue');
+        return false;
+      }
       
       // Try multiple matching strategies
       const matchResult = this.findBestTextMatch(normalizedChunkText, normalizedAllText);
@@ -900,7 +965,7 @@ class OperationPanel extends React.Component<
       console.log(`✅ [SELECTION] Found match at position ${matchResult.start}-${matchResult.end} with ${matchResult.confidence.toFixed(2)} confidence`);
       
       // Create DOM selection based on the text match
-      const selectionSuccess = await this.createDOMSelectionFromTextMatch(doc, matchResult, allText);
+      const selectionSuccess = await this.createDOMSelectionFromTextMatch(doc, matchResult, allText, normalizedAllText);
       
       if (!selectionSuccess) {
         console.log('❌ [SELECTION] Failed to create DOM selection from text match');
@@ -927,6 +992,73 @@ class OperationPanel extends React.Component<
     } catch (error) {
       console.error('❌ [SELECTION] Error creating programmatic selection:', error);
       return false;
+    }
+  };
+
+  // Extract all text from DOM manually as fallback
+  extractAllTextFromDOM = (doc: Document): string => {
+    try {
+      // Try multiple extraction strategies
+      const strategies: Array<{name: string, text: string, parts: number}> = [];
+      
+      // Strategy 1: TreeWalker on body
+      if (doc.body) {
+        const walker = doc.createTreeWalker(
+          doc.body,
+          NodeFilter.SHOW_TEXT,
+          null
+        );
+        
+        const textParts: string[] = [];
+        let node;
+        
+        while (node = walker.nextNode()) {
+          const textContent = node.textContent?.trim();
+          if (textContent && textContent.length > 0) {
+            textParts.push(textContent);
+          }
+        }
+        
+        strategies.push({name: 'body-walker', text: textParts.join(' '), parts: textParts.length});
+      }
+      
+      // Strategy 2: Query all text-containing elements
+      const textSelectors = ['p', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'td', 'th'];
+      const textElements = doc.querySelectorAll(textSelectors.join(', '));
+      const elementTexts: string[] = [];
+      
+      for (const element of textElements) {
+        const text = element.textContent?.trim();
+        if (text && text.length > 0) {
+          elementTexts.push(text);
+        }
+      }
+      
+      strategies.push({name: 'element-query', text: elementTexts.join(' '), parts: elementTexts.length});
+      
+      // Strategy 3: Entire document text
+      const docText = doc.documentElement?.textContent?.trim() || '';
+      strategies.push({name: 'document-text', text: docText, parts: 1});
+      
+      // Choose the best strategy (most text)
+      const bestStrategy = strategies.reduce((best, current) => 
+        current.text.length > best.text.length ? current : best
+      );
+      
+      console.log(`📄 [SELECTION] Extraction strategies:`, strategies.map(s => ({
+        name: s.name, 
+        length: s.text.length, 
+        parts: s.parts,
+        preview: s.text.substring(0, 50) + '...'
+      })));
+      
+      console.log(`📄 [SELECTION] Using best strategy: ${bestStrategy.name} (${bestStrategy.text.length} chars)`);
+      
+      return bestStrategy.text;
+      
+    } catch (error) {
+      console.error('❌ [SELECTION] Error in manual text extraction:', error);
+      return '';
     }
   };
 
@@ -1097,7 +1229,7 @@ class OperationPanel extends React.Component<
   };
 
   // Create DOM selection from text position match
-  createDOMSelectionFromTextMatch = async (doc: Document, match: any, fullText: string): Promise<boolean> => {
+  createDOMSelectionFromTextMatch = async (doc: Document, match: TextMatchResult, fullText: string, normalizedText: string): Promise<boolean> => {
     try {
       const selection = doc.getSelection();
       if (!selection) return false;
