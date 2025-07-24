@@ -1365,26 +1365,45 @@ class OperationPanel extends React.Component<
         console.log(`📝 [HIGHLIGHT] Doc ${docIndex}: Sample text nodes:`, textNodes.slice(0, 3).map(n => `"${n.textContent?.substring(0, 50)}..."`));
       }
       
-      // Find the BEST matching text node (highest word match score)
-      let bestMatch: { textNode: Text; nodeText: string; matchingWords: string[]; score: number } | null = null;
-      let bestScore = 0;
+      // Find the BEST matching text node with improved quality scoring
+      let bestMatch: { textNode: Text; nodeText: string; matchingWords: string[]; qualityScore: number } | null = null;
+      let bestQualityScore = 0;
+      
+      // Filter out common stop words for better matching
+      const stopWords = ['a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'must', 'shall', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them'];
+      const meaningfulChunkWords = chunkWords.filter(word => !stopWords.includes(word.toLowerCase()) && word.length > 2);
+      
+      console.log(`🎯 [HIGHLIGHT] Doc ${docIndex}: Meaningful words for matching: [${meaningfulChunkWords.join(', ')}]`);
       
       for (const textNode of textNodes) {
         const nodeText = textNode.textContent?.toLowerCase().replace(/\s+/g, ' ').trim();
         
         if (nodeText && nodeText.length > 10) {
-          // Calculate match score
-          const matchingWords = chunkWords.filter(word => nodeText.includes(word));
-          const score = matchingWords.length;
+          // Calculate quality score based on meaningful word matches
+          const meaningfulMatches = meaningfulChunkWords.filter(word => nodeText.includes(word));
+          const commonWordMatches = chunkWords.filter(word => stopWords.includes(word.toLowerCase()) && nodeText.includes(word));
           
-          if (score > bestScore && score >= 3) { // Need at least 3 matching words
-            bestMatch = { textNode, nodeText, matchingWords, score };
-            bestScore = score;
+          // Quality scoring formula:
+          // - Meaningful words: 10 points each
+          // - Common words: 1 point each  
+          // - Bonus for chunk start match: +5 points
+          let qualityScore = meaningfulMatches.length * 10 + commonWordMatches.length * 1;
+          
+          // Bonus for containing chunk beginning words
+          const chunkStart = chunkText.toLowerCase().substring(0, 30);
+          if (chunkStart.split(' ').some(word => word.length > 2 && nodeText.includes(word))) {
+            qualityScore += 5;
+            console.log(`🎯 [HIGHLIGHT] Doc ${docIndex}: Found chunk start match bonus in: "${nodeText.substring(0, 40)}..."`);
+          }
+          
+          if (qualityScore > bestQualityScore && meaningfulMatches.length >= 2) {
+            bestMatch = { textNode, nodeText, matchingWords: meaningfulMatches, qualityScore };
+            bestQualityScore = qualityScore;
           }
         }
       }
       
-      // Highlight only the BEST match to avoid multiple random highlights
+      // Highlight only the BEST quality match to avoid scattered highlights
       if (bestMatch) {
         const parent = bestMatch.textNode.parentElement;
         if (parent && parent.ownerDocument) {
@@ -1403,7 +1422,7 @@ class OperationPanel extends React.Component<
           // Store for cleanup
           this.highlightedElements.push(highlightSpan);
           
-          console.log(`✅ [HIGHLIGHT] Doc ${docIndex}: Highlighted BEST match: "${bestMatch.nodeText.substring(0, 80)}..." (${bestMatch.score}/${chunkWords.length} words matched: [${bestMatch.matchingWords.join(', ')}])`);
+          console.log(`✅ [HIGHLIGHT] Doc ${docIndex}: Highlighted QUALITY match: "${bestMatch.nodeText.substring(0, 80)}..." (Quality Score: ${bestMatch.qualityScore}, Meaningful words: [${bestMatch.matchingWords.join(', ')}])`);
           return true;
         }
       }
