@@ -729,11 +729,27 @@ class OperationPanel extends React.Component<
       if (!success) {
         // Fallback to enhanced highlightAudioNode method
         console.log('🔄 [HIGHLIGHT] Falling back to enhanced highlightAudioNode method');
+        console.log(`🔍 [DEBUG] highlightAudioNode exists: ${!!this.props.htmlBook?.rendition?.highlightAudioNode}`);
+        console.log(`🔍 [DEBUG] Text to highlight: "${chunkText.substring(0, 100)}..."`);
+        
         if (this.props.htmlBook && this.props.htmlBook.rendition && this.props.htmlBook.rendition.highlightAudioNode) {
           const style = "background: #76BEE9 !important; opacity: 0.8 !important; border-radius: 3px !important; padding: 1px 2px !important;";
-          this.props.htmlBook.rendition.highlightAudioNode(chunkText, style);
-          this.highlightedElements.push({ text: chunkText, highlighted: true } as any);
-          console.log('✅ [HIGHLIGHT] Fallback highlighting applied successfully');
+          
+          try {
+            const result = this.props.htmlBook.rendition.highlightAudioNode(chunkText, style);
+            console.log(`🔍 [DEBUG] highlightAudioNode result:`, result);
+            
+            if (result === undefined || result === false || result === null) {
+              console.log('⚠️ [HIGHLIGHT] highlightAudioNode failed to find text, trying direct DOM highlighting');
+              this.highlightTextDirectly(chunkText);
+            } else {
+              this.highlightedElements.push({ text: chunkText, highlighted: true } as any);
+              console.log('✅ [HIGHLIGHT] Fallback highlighting applied successfully');
+            }
+          } catch (error) {
+            console.error('❌ [DEBUG] highlightAudioNode failed:', error);
+            this.highlightTextDirectly(chunkText);
+          }
         } else {
           // Final fallback - direct DOM highlighting
           this.highlightTextDirectly(chunkText);
@@ -1370,14 +1386,37 @@ class OperationPanel extends React.Component<
     try {
       console.log(`🔧 [HIGHLIGHT] Using direct DOM highlighting for: "${chunkText.substring(0, 50)}..."`);
       
-      // Get iframe document
-      const iframe = document.getElementById('kookit-iframe') as HTMLIFrameElement;
-      if (!iframe || !iframe.contentDocument) {
-        console.log('⚠️ [HIGHLIGHT] No iframe document found for direct highlighting');
+      // Use same iframe detection as our working text extraction
+      const docs = getIframeDoc(this.props.currentBook.format);
+      
+      if (!docs || docs.length === 0) {
+        console.log('⚠️ [HIGHLIGHT] No iframe documents found for direct highlighting');
         return;
       }
       
-      const doc = iframe.contentDocument;
+      console.log(`📄 [HIGHLIGHT] Found ${docs.length} iframe document(s) for direct highlighting`);
+      
+      // Try each document until we find and highlight the text
+      for (let i = 0; i < docs.length; i++) {
+        const doc = docs[i];
+        if (!doc) continue;
+        
+        console.log(`🔧 [HIGHLIGHT] Trying direct highlighting in document ${i + 1}/${docs.length}`);
+        
+        if (this.highlightInDocument(doc, chunkText, i + 1)) {
+          return; // Success, stop trying other documents
+        }
+      }
+      
+      console.log('❌ [HIGHLIGHT] Direct highlighting failed in all documents');
+    } catch (error) {
+      console.error('❌ [HIGHLIGHT] Error in direct DOM highlighting:', error);
+    }
+  };
+
+  // Helper method to highlight text in a specific document
+  highlightInDocument = (doc: Document, chunkText: string, docIndex: number): boolean => {
+    try {
       const walker = doc.createTreeWalker(
         doc.body || doc.documentElement,
         NodeFilter.SHOW_TEXT,
@@ -1396,6 +1435,9 @@ class OperationPanel extends React.Component<
       const cleanChunkText = chunkText.toLowerCase().replace(/\s+/g, ' ').trim();
       const chunkWords = cleanChunkText.split(' ').slice(0, 5); // First 5 words for matching
       
+      console.log(`🔍 [HIGHLIGHT] Doc ${docIndex}: Found ${textNodes.length} text nodes to search`);
+      console.log(`🔍 [HIGHLIGHT] Doc ${docIndex}: Looking for words: [${chunkWords.join(', ')}]`);
+      
       for (const textNode of textNodes) {
         const nodeText = textNode.textContent?.toLowerCase().replace(/\s+/g, ' ').trim();
         
@@ -1405,22 +1447,40 @@ class OperationPanel extends React.Component<
           if (matchingWords.length >= 3) {
             const parent = textNode.parentElement;
             if (parent) {
-              parent.style.backgroundColor = '#76BEE9';
-              parent.style.opacity = '0.8';
-              parent.style.borderRadius = '3px';
-              parent.style.padding = '1px 2px';
+              // Apply very forceful styling to ensure visibility
+              parent.style.setProperty('background-color', '#76BEE9', 'important');
+              parent.style.setProperty('color', '#000000', 'important');
+              parent.style.setProperty('opacity', '1', 'important');
+              parent.style.setProperty('border-radius', '3px', 'important');
+              parent.style.setProperty('padding', '2px 4px', 'important');
+              parent.style.setProperty('border', '2px solid #4A9EE0', 'important');
+              parent.style.setProperty('display', 'inline-block', 'important');
+              parent.style.setProperty('margin', '1px', 'important');
+              parent.style.setProperty('z-index', '999', 'important');
+              
+              // Also try highlighting the text node's parent's parent for more visibility
+              const grandParent = parent.parentElement;
+              if (grandParent) {
+                grandParent.style.setProperty('background-color', '#E6F3FF', 'important');
+                grandParent.style.setProperty('border-left', '4px solid #76BEE9', 'important');
+              }
+              
               this.highlightedElements.push(parent);
-              console.log(`✅ [HIGHLIGHT] Direct DOM highlighting applied to: "${nodeText.substring(0, 50)}..."`);
-              return; // Only highlight the first match
+              if (grandParent) this.highlightedElements.push(grandParent);
+              console.log(`✅ [HIGHLIGHT] Doc ${docIndex}: Direct DOM highlighting applied to: "${nodeText.substring(0, 50)}..."`);
+              console.log(`✅ [HIGHLIGHT] Doc ${docIndex}: Matched ${matchingWords.length}/5 words: [${matchingWords.join(', ')}]`);
+              return true; // Success
             }
           }
         }
       }
       
-      console.log('⚠️ [HIGHLIGHT] Could not find matching text for direct highlighting');
+      console.log(`⚠️ [HIGHLIGHT] Doc ${docIndex}: Could not find matching text for direct highlighting`);
+      return false;
       
     } catch (error) {
-      console.error('❌ [HIGHLIGHT] Error in direct DOM highlighting:', error);
+      console.error(`❌ [HIGHLIGHT] Doc ${docIndex}: Error in direct DOM highlighting:`, error);
+      return false;
     }
   };
 
