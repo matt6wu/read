@@ -1428,9 +1428,10 @@ class OperationPanel extends React.Component<
             console.log(`🎯 [HIGHLIGHT] Doc ${docIndex}: Chunk start match bonus in: "${nodeText.substring(0, 50)}..."`);
           }
           
-          // RELAXED matching criteria - only need 1 good match
-          const minScore = isChinese ? 4 : 3; // Lower threshold for Chinese
-          if (qualityScore >= minScore && qualityScore > bestQualityScore) {
+          // BALANCED matching criteria - Chinese looser, English stricter
+          const minScore = isChinese ? 4 : 6; // Chinese: 4 points, English: 6 points (stricter)
+          const minKeywords = isChinese ? 1 : 2; // Chinese: 1 keyword, English: 2 keywords
+          if (qualityScore >= minScore && matchingKeywords.length >= minKeywords && qualityScore > bestQualityScore) {
             bestMatch = { textNode, nodeText, matchingKeywords, qualityScore };
             bestQualityScore = qualityScore;
           }
