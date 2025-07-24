@@ -1,6 +1,7 @@
 import React from "react";
 import "./operationPanel.css";
 import Bookmark from "../../../models/Bookmark";
+import Note from "../../../models/Note";
 import { Trans } from "react-i18next";
 
 import { OperationPanelProps, OperationPanelState } from "./interface";
@@ -26,6 +27,7 @@ class OperationPanel extends React.Component<
   currentAudio: HTMLAudioElement | null;
   audioCache: Map<number, Blob>;
   highlightedElements: Element[];
+  currentTTSNotes: Note[];
 
   constructor(props: OperationPanelProps) {
     super(props);
@@ -49,6 +51,7 @@ class OperationPanel extends React.Component<
     this.currentAudio = null;
     this.audioCache = new Map();
     this.highlightedElements = [];
+    this.currentTTSNotes = [];
     this.timeStamp = Date.now();
     this.speed = 30000;
   }
@@ -190,7 +193,7 @@ class OperationPanel extends React.Component<
       this.audioCache.clear();
       console.log('🗑️ [TOP TTS] Audio cache cleared');
       // Clear any text highlighting
-      this.clearTextHighlight();
+      await this.clearTextHighlight();
       this.setState({ isCustomTTSOn: false });
       console.log('✅ [TOP TTS] TTS stopped successfully');
       return;
@@ -198,7 +201,7 @@ class OperationPanel extends React.Component<
 
     // Clear cache and highlighting, then start Smart TTS with chunking
     this.audioCache.clear();
-    this.clearTextHighlight();
+    await this.clearTextHighlight();
     await this.startSmartTTS();
   };
 
@@ -207,7 +210,7 @@ class OperationPanel extends React.Component<
     try {
       console.log('🚀 [TOP TTS] *** NEW CHUNKING VERSION *** Starting Smart TTS with chunking...');
       // Clear any existing highlights at start
-      this.clearTextHighlight();
+      await this.clearTextHighlight();
       this.setState({ isCustomTTSOn: true });
       
       // Get current visible text using audioText method (better for TTS)
@@ -284,7 +287,7 @@ class OperationPanel extends React.Component<
       console.log(`📊 [TOP TTS] Chunk stats: ${currentChunk.length} characters`);
       
       // Highlight each original sentence in this chunk for exact DOM matching (like official TTS)
-      this.highlightOriginalSentences(sentenceList, startIndex);
+      await this.highlightOriginalSentences(sentenceList, startIndex);
       
       // Check if we have this chunk cached
       let audioBlob: Blob | null = this.audioCache.get(startIndex) || null;
@@ -528,7 +531,7 @@ class OperationPanel extends React.Component<
         console.log('🗑️ [TOP TTS] Audio cache cleared after page turn to prevent old content playback');
         
         // Clear highlighting when turning page
-        this.clearTextHighlight();
+        await this.clearTextHighlight();
         console.log('🧼 [TOP TTS] Text highlighting cleared for new page');
         
         toast.success(this.props.t("Turning to next page..."));
@@ -587,7 +590,7 @@ class OperationPanel extends React.Component<
       } else {
         console.log('🏁 [TOP TTS] Not at end of page yet, stopping TTS');
         // Clear highlighting when TTS completes
-        this.clearTextHighlight();
+        await this.clearTextHighlight();
         this.setState({ isCustomTTSOn: false });
         toast.success(this.props.t("TTS completed"));
       }
@@ -691,59 +694,408 @@ class OperationPanel extends React.Component<
     return matrix[str2.length][str1.length];
   };
 
-  // Use official highlighting system (createOneNote) like the text selection toolbar
-  highlightOriginalSentences = (sentenceList: string[], startIndex: number) => {
+  // Use official createOneNote system with programmatic text selection
+  highlightOriginalSentences = async (sentenceList: string[], startIndex: number) => {
     try {
-      // Clear previous highlights first (like official TTS)
-      this.clearTextHighlight();
+      // Clear previous highlights first
+      await this.clearTTSHighlights();
       
-      console.log(`✨ [HIGHLIGHT] Using official createOneNote highlighting (like text selection toolbar)`);
+      console.log(`✨ [HIGHLIGHT] Using official createOneNote system with programmatic selection`);
       
       // Find which original sentences are in this chunk
       const { nextIndex } = this.createChunk(sentenceList, startIndex);
       const chunkSentences = sentenceList.slice(startIndex, nextIndex);
+      const chunkText = chunkSentences.join(' ').trim();
       
-      console.log(`🎯 [HIGHLIGHT] Processing ${chunkSentences.length} sentences with official TTS method`);
+      if (!chunkText || chunkText.length < 10) {
+        console.log('⚠️ [HIGHLIGHT] Chunk text too short for highlighting');
+        return;
+      }
       
-      // Highlight each sentence individually using EXACT official TTS approach
-      let highlightedCount = 0;
-      for (let i = 0; i < chunkSentences.length; i++) {
-        const currentText = chunkSentences[i].trim();
+      console.log(`🎯 [HIGHLIGHT] Creating programmatic selection for: "${chunkText.substring(0, 80)}..."`);
+      
+      // Try to create official highlight with programmatic text selection
+      const success = await this.createOfficialTTSHighlight(chunkText);
+      
+      if (!success) {
+        // Fallback to enhanced highlightAudioNode method
+        console.log('🔄 [HIGHLIGHT] Falling back to enhanced highlightAudioNode method');
+        if (this.props.htmlBook && this.props.htmlBook.rendition && this.props.htmlBook.rendition.highlightAudioNode) {
+          const style = "background: #76BEE9 !important; opacity: 0.8 !important; border-radius: 3px !important; padding: 1px 2px !important;";
+          this.props.htmlBook.rendition.highlightAudioNode(chunkText, style);
+          this.highlightedElements.push({ text: chunkText, highlighted: true } as any);
+          console.log('✅ [HIGHLIGHT] Fallback highlighting applied successfully');
+        } else {
+          // Final fallback - direct DOM highlighting
+          this.highlightTextDirectly(chunkText);
+        }
+      }
+      
+    } catch (error) {
+      console.error('❌ [HIGHLIGHT] Error in TTS highlighting:', error);
+    }
+  };
+
+  // Create official TTS highlight using programmatic text selection
+  createOfficialTTSHighlight = async (chunkText: string): Promise<boolean> => {
+    try {
+      console.log(`🎯 [OFFICIAL] Attempting to create official TTS highlight`);
+      
+      // Step 1: Find the text in the DOM and create a selection
+      const selectionResult = await this.createProgrammaticSelection(chunkText);
+      if (!selectionResult) {
+        console.log('❌ [OFFICIAL] Could not create programmatic selection');
+        return false;
+      }
+      
+      console.log('✅ [OFFICIAL] Programmatic selection created successfully');
+      
+      // Step 2: Get the required data just like PopupOption does
+      const bookKey = this.props.currentBook.key;
+      const bookLocation = ConfigService.getObjectConfig(
+        this.props.currentBook.key,
+        "recordLocation",
+        {}
+      );
+      let cfi = JSON.stringify(bookLocation);
+      
+      // Handle PDF format
+      if (this.props.currentBook.format === "PDF") {
+        const position = await this.props.htmlBook.rendition.getPosition();
+        const pdfLocation = this.props.htmlBook.rendition.getPositionByChapter(
+          position.currentPage || 0
+        );
+        cfi = JSON.stringify(pdfLocation);
+      }
+      
+      const percentage = bookLocation.percentage ? bookLocation.percentage : "0";
+      const color = 3; // Blue color for TTS
+      const notes = "";
+      
+      // Step 3: Get highlight coordinates (this should work now with selection)
+      let range;
+      try {
+        const position = await this.props.htmlBook.rendition.getPosition();
+        range = JSON.stringify(
+          await this.props.htmlBook.rendition.getHightlightCoords(
+            position.currentPage || 0
+          )
+        );
+        console.log('✅ [OFFICIAL] Got highlight coordinates from selection');
+      } catch (coordError) {
+        console.warn('⚠️ [OFFICIAL] Could not get coordinates, using empty range:', coordError);
+        range = JSON.stringify({});
+      }
+      
+      // Step 4: Clean the text like PopupOption does
+      const cleanText = chunkText
+        .replace(/\s\s/g, "")
+        .replace(/\r/g, "")
+        .replace(/\n/g, "")
+        .replace(/\t/g, "")
+        .replace(/\f/g, "");
+      
+      // Step 5: Get current position info
+      const position = await this.props.htmlBook.rendition.getPosition();
+      const chapter = "TTS Chapter " + (position.currentPage || 1);
+      const chapterDocIndex = position.currentPage || 0;
+      
+      // Step 6: Create the Note object exactly like PopupOption
+      const ttsNote = new Note(
+        bookKey,
+        chapter,
+        chapterDocIndex,
+        cleanText,
+        cfi,
+        range,
+        notes,
+        percentage,
+        color,
+        []
+      );
+      
+      // Add special identifier
+      ttsNote.key = `tts-highlight-${ttsNote.key}`;
+      
+      console.log(`📝 [OFFICIAL] Created official Note object:`, {
+        key: ttsNote.key,
+        text: ttsNote.text.substring(0, 60) + '...',
+        color: ttsNote.color,
+        hasRange: range !== '{}',
+        chapterDocIndex: chapterDocIndex
+      });
+      
+      // Step 7: Create the highlight using official system
+      await this.props.htmlBook.rendition.createOneNote(
+        ttsNote,
+        this.handleTTSNoteClick
+      );
+      
+      // Store for cleanup
+      this.currentTTSNotes.push(ttsNote);
+      
+      // Clear the programmatic selection
+      this.clearProgrammaticSelection();
+      
+      console.log('✅ [OFFICIAL] Official TTS highlight created successfully!');
+      return true;
+      
+    } catch (error) {
+      console.error('❌ [OFFICIAL] Error creating official TTS highlight:', error);
+      // Clean up any partial selection
+      this.clearProgrammaticSelection();
+      return false;
+    }
+  };
+
+  // Create programmatic text selection (simulate user text selection)
+  createProgrammaticSelection = async (chunkText: string): Promise<boolean> => {
+    try {
+      console.log(`🔍 [SELECTION] Looking for text to select: "${chunkText.substring(0, 50)}..."`);
+      
+      // Get iframe document
+      const iframe = document.getElementById('kookit-iframe') as HTMLIFrameElement;
+      if (!iframe || !iframe.contentDocument) {
+        console.log('❌ [SELECTION] No iframe document found');
+        return false;
+      }
+      
+      const doc = iframe.contentDocument;
+      
+      // Import the Selection and Range APIs
+      const selection = doc.getSelection();
+      if (!selection) {
+        console.log('❌ [SELECTION] No selection API available');
+        return false;
+      }
+      
+      // Clear any existing selection
+      selection.removeAllRanges();
+      
+      // Find the text in the document
+      const walker = doc.createTreeWalker(
+        doc.body || doc.documentElement,
+        NodeFilter.SHOW_TEXT,
+        null
+      );
+      
+      const cleanChunkText = chunkText.toLowerCase().replace(/\s+/g, ' ').trim();
+      const chunkWords = cleanChunkText.split(' ');
+      
+      // Look for text nodes that contain our chunk
+      let startNode: Text | null = null;
+      let startOffset = 0;
+      let endNode: Text | null = null;
+      let endOffset = 0;
+      
+      const textNodes: Text[] = [];
+      let node;
+      while (node = walker.nextNode()) {
+        if (node.textContent && node.textContent.trim().length > 3) {
+          textNodes.push(node as Text);
+        }
+      }
+      
+      // Find the best matching text sequence
+      for (let i = 0; i < textNodes.length; i++) {
+        const textNode = textNodes[i];
+        const nodeText = textNode.textContent?.toLowerCase().replace(/\s+/g, ' ').trim();
         
-        if (currentText && currentText.length > 5) { // Must have content
-          console.log(`🔍 [HIGHLIGHT] Official TTS approach for sentence ${i + 1}: "${currentText.substring(0, 60)}..."`);
+        if (nodeText && nodeText.length > 10) {
+          // Check if this node contains the start of our text
+          const firstWords = chunkWords.slice(0, 3).join(' ');
+          const startIndex = nodeText.indexOf(firstWords);
           
-          try {
-            // EXACT replication of official TTS highlighting from lines 152-153 & 195-196
-            if (this.props.htmlBook && this.props.htmlBook.rendition && this.props.htmlBook.rendition.highlightAudioNode) {
-              // Use EXACT same style as official TTS component
-              let style = "background: #f3a6a68c;";
-              
-              // Call highlightAudioNode exactly like official TTS does
-              this.props.htmlBook.rendition.highlightAudioNode(currentText, style);
-              
-              // Store for cleanup (matching official approach)
-              this.highlightedElements.push({ text: currentText, highlighted: true } as any);
-              
-              highlightedCount++;
-              console.log(`✅ [HIGHLIGHT] Official TTS highlighting applied to sentence ${i + 1}`);
-              
-              // DEBUG: Check if DOM actually changed
-              this.inspectHighlightDOM(currentText);
+          if (startIndex >= 0) {
+            startNode = textNode;
+            startOffset = textNode.textContent!.toLowerCase().indexOf(firstWords);
+            
+            // Try to find the end in the same node or subsequent nodes
+            let searchText = nodeText.substring(startIndex);
+            let currentLength = searchText.length;
+            let currentNode = textNode;
+            
+            // Check if the chunk ends in this node
+            const lastWords = chunkWords.slice(-3).join(' ');
+            const endIndex = searchText.indexOf(lastWords);
+            
+            if (endIndex >= 0) {
+              // Ends in the same node
+              endNode = textNode;
+              endOffset = startOffset + endIndex + lastWords.length;
             } else {
-              console.log(`⚠️ [HIGHLIGHT] highlightAudioNode method not available`);
+              // Look in subsequent nodes
+              for (let j = i + 1; j < Math.min(i + 5, textNodes.length); j++) {
+                const nextNode = textNodes[j];
+                const nextText = nextNode.textContent?.toLowerCase().replace(/\s+/g, ' ').trim();
+                
+                if (nextText) {
+                  searchText += ' ' + nextText;
+                  const endIndexInExtended = searchText.indexOf(lastWords);
+                  
+                  if (endIndexInExtended >= 0) {
+                    endNode = nextNode;
+                    const endInNextNode = nextText.indexOf(lastWords);
+                    endOffset = endInNextNode >= 0 ? endInNextNode + lastWords.length : nextText.length;
+                    break;
+                  }
+                }
+              }
             }
-          } catch (sentenceError) {
-            console.error(`❌ [HIGHLIGHT] Official TTS highlighting failed for sentence ${i + 1}:`, sentenceError);
+            
+            if (endNode) {
+              break; // Found both start and end
+            }
           }
         }
       }
       
-      console.log(`🎉 [HIGHLIGHT] Official TTS highlighting complete: ${highlightedCount}/${chunkSentences.length} sentences`);
+      if (!startNode || !endNode) {
+        console.log('❌ [SELECTION] Could not find text boundaries for selection');
+        return false;
+      }
+      
+      // Create the range
+      const range = doc.createRange();
+      range.setStart(startNode, Math.max(0, startOffset));
+      range.setEnd(endNode, Math.min(endNode.textContent!.length, endOffset));
+      
+      // Add the range to selection
+      selection.addRange(range);
+      
+      // Verify the selection
+      const selectedText = selection.toString().replace(/\s+/g, ' ').trim();
+      console.log(`✅ [SELECTION] Created selection: "${selectedText.substring(0, 50)}..."`);
+      
+      // Check if selection is reasonable (at least 30% overlap)
+      const selectedWords = selectedText.toLowerCase().split(' ');
+      const matchingWords = chunkWords.filter(word => 
+        selectedWords.some(selWord => selWord.includes(word) || word.includes(selWord))
+      );
+      
+      const matchRatio = matchingWords.length / chunkWords.length;
+      console.log(`📊 [SELECTION] Match ratio: ${matchRatio.toFixed(2)} (${matchingWords.length}/${chunkWords.length})`);
+      
+      if (matchRatio < 0.3) {
+        console.log('❌ [SELECTION] Selection match ratio too low, clearing selection');
+        selection.removeAllRanges();
+        return false;
+      }
+      
+      console.log('✅ [SELECTION] Programmatic selection created successfully');
+      return true;
       
     } catch (error) {
-      console.error('❌ [HIGHLIGHT] Error in official TTS highlighting replication:', error);
-      // Don't use fallback - we need to understand why official method fails
+      console.error('❌ [SELECTION] Error creating programmatic selection:', error);
+      return false;
+    }
+  };
+
+  // Clear programmatic selection
+  clearProgrammaticSelection = () => {
+    try {
+      const iframe = document.getElementById('kookit-iframe') as HTMLIFrameElement;
+      if (iframe && iframe.contentDocument) {
+        const selection = iframe.contentDocument.getSelection();
+        if (selection) {
+          selection.removeAllRanges();
+        }
+      }
+    } catch (error) {
+      console.error('❌ [SELECTION] Error clearing selection:', error);
+    }
+  };
+
+  // Direct DOM highlighting as final fallback
+  highlightTextDirectly = (chunkText: string) => {
+    try {
+      console.log(`🔧 [HIGHLIGHT] Using direct DOM highlighting for: "${chunkText.substring(0, 50)}..."`);
+      
+      // Get iframe document
+      const iframe = document.getElementById('kookit-iframe') as HTMLIFrameElement;
+      if (!iframe || !iframe.contentDocument) {
+        console.log('⚠️ [HIGHLIGHT] No iframe document found for direct highlighting');
+        return;
+      }
+      
+      const doc = iframe.contentDocument;
+      const walker = doc.createTreeWalker(
+        doc.body || doc.documentElement,
+        NodeFilter.SHOW_TEXT,
+        null
+      );
+      
+      const textNodes: Text[] = [];
+      let node;
+      while (node = walker.nextNode()) {
+        if (node.textContent && node.textContent.trim().length > 5) {
+          textNodes.push(node as Text);
+        }
+      }
+      
+      // Look for matching text
+      const cleanChunkText = chunkText.toLowerCase().replace(/\s+/g, ' ').trim();
+      const chunkWords = cleanChunkText.split(' ').slice(0, 5); // First 5 words for matching
+      
+      for (const textNode of textNodes) {
+        const nodeText = textNode.textContent?.toLowerCase().replace(/\s+/g, ' ').trim();
+        
+        if (nodeText && nodeText.length > 10) {
+          // Check if this text node contains our chunk (at least 3 matching words)
+          const matchingWords = chunkWords.filter(word => nodeText.includes(word));
+          if (matchingWords.length >= 3) {
+            const parent = textNode.parentElement;
+            if (parent) {
+              parent.style.backgroundColor = '#76BEE9';
+              parent.style.opacity = '0.8';
+              parent.style.borderRadius = '3px';
+              parent.style.padding = '1px 2px';
+              this.highlightedElements.push(parent);
+              console.log(`✅ [HIGHLIGHT] Direct DOM highlighting applied to: "${nodeText.substring(0, 50)}..."`);
+              return; // Only highlight the first match
+            }
+          }
+        }
+      }
+      
+      console.log('⚠️ [HIGHLIGHT] Could not find matching text for direct highlighting');
+      
+    } catch (error) {
+      console.error('❌ [HIGHLIGHT] Error in direct DOM highlighting:', error);
+    }
+  };
+
+  // Dummy click handler for TTS notes (they shouldn't be clickable)
+  handleTTSNoteClick = (event: Event) => {
+    console.log('🎵 [TTS] TTS highlight clicked - ignoring (TTS highlights are temporary)');
+    // Prevent default behavior - TTS highlights are temporary and shouldn't open note panel
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  // Clear TTS highlights (simplified for enhanced system)
+  clearTTSHighlights = async () => {
+    try {
+      // Clear any official TTS notes if they exist
+      if (this.currentTTSNotes.length > 0) {
+        console.log(`🧼 [HIGHLIGHT] Clearing ${this.currentTTSNotes.length} official TTS notes`);
+        
+        for (const ttsNote of this.currentTTSNotes) {
+          try {
+            if (this.props.htmlBook && this.props.htmlBook.rendition && this.props.htmlBook.rendition.removeOneNote) {
+              await this.props.htmlBook.rendition.removeOneNote(ttsNote.key);
+            }
+          } catch (error) {
+            console.error(`❌ [HIGHLIGHT] Error removing TTS note ${ttsNote.key}:`, error);
+          }
+        }
+        this.currentTTSNotes = [];
+      }
+      
+      console.log('✅ [HIGHLIGHT] TTS highlights cleared successfully');
+      
+    } catch (error) {
+      console.error('❌ [HIGHLIGHT] Error clearing TTS highlights:', error);
     }
   };
 
@@ -815,10 +1167,10 @@ class OperationPanel extends React.Component<
   };
 
   // Original chunk highlighting method (fallback)
-  highlightCurrentChunk = (chunkText: string) => {
+  highlightCurrentChunk = async (chunkText: string) => {
     try {
       // Clear previous highlights
-      this.clearTextHighlight();
+      await this.clearTextHighlight();
       
       console.log(`✨ [HIGHLIGHT] Using native highlightAudioNode for: "${chunkText.substring(0, 80)}..."`);
       
@@ -927,13 +1279,14 @@ class OperationPanel extends React.Component<
   };
 
   // Clear text highlighting
-  clearTextHighlight = () => {
+  clearTextHighlight = async () => {
     try {
-      console.log(`🧼 [HIGHLIGHT] Clearing ${this.highlightedElements.length} highlighted elements`);
+      console.log(`🧼 [HIGHLIGHT] Clearing highlights: ${this.highlightedElements.length} legacy + ${this.currentTTSNotes.length} official TTS`);
       
-      // Clear any previous TTS highlighting first
+      // First, clear official TTS highlights using removeOneNote
+      await this.clearTTSHighlights();
       
-      // Try to use native method to remove TTS highlighting
+      // Then clear legacy highlighting methods
       if (this.props.htmlBook && this.props.htmlBook.rendition && this.props.htmlBook.rendition.removeAudioHighlight) {
         console.log('🧼 [HIGHLIGHT] Using native removeAudioHighlight method');
         this.props.htmlBook.rendition.removeAudioHighlight();
@@ -953,9 +1306,9 @@ class OperationPanel extends React.Component<
         }
       }
       
-      // Clear the array
+      // Clear the legacy array
       this.highlightedElements = [];
-      console.log('✅ [HIGHLIGHT] All highlights cleared successfully');
+      console.log('✅ [HIGHLIGHT] All highlights cleared successfully (both official and legacy)');
       
     } catch (error) {
       console.error('❌ [HIGHLIGHT] Error clearing highlights:', error);
@@ -1029,7 +1382,7 @@ class OperationPanel extends React.Component<
   };
 
   // Stop TTS functionality
-  handleStopTTS = () => {
+  handleStopTTS = async () => {
     console.log('🛑 [TOP TTS] Stop button clicked');
     console.log('🛑 [TOP TTS] Current audio state:', {
       exists: !!this.currentAudio,
@@ -1056,7 +1409,7 @@ class OperationPanel extends React.Component<
       }
       
       // Clear any text highlighting
-      this.clearTextHighlight();
+      await this.clearTextHighlight();
       
       // Update state
       this.setState({ isCustomTTSOn: false });
