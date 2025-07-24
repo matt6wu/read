@@ -1353,51 +1353,85 @@ class OperationPanel extends React.Component<
         console.log(`⚠️ [HIGHLIGHT] Doc ${docIndex}: Root HTML: ${rootElement.innerHTML.substring(0, 300)}...`);
       }
       
-      // Look for matching text
-      const cleanChunkText = chunkText.toLowerCase().replace(/\s+/g, ' ').trim();
-      const chunkWords = cleanChunkText.split(' ').slice(0, 5); // First 5 words for matching
+      // Improved Chinese/English text matching
+      const cleanChunkText = chunkText.replace(/\s+/g, ' ').trim();
+      
+      // Detect if text is primarily Chinese
+      const chineseCharCount = (cleanChunkText.match(/[\u4e00-\u9fff]/g) || []).length;
+      const totalChars = cleanChunkText.length;
+      const isChinese = chineseCharCount / totalChars > 0.3;
+      
+      let searchKeywords: string[] = [];
+      
+      if (isChinese) {
+        // Chinese text: extract meaningful character segments and phrases
+        const phrases = cleanChunkText.split(/[，。！？；：、]/); // Split by Chinese punctuation
+        const meaningfulPhrases = phrases.filter(phrase => phrase.trim().length >= 3 && phrase.trim().length <= 15);
+        const characterSegments = cleanChunkText.match(/[\u4e00-\u9fff]{3,8}/g) || []; // 3-8 character segments
+        searchKeywords = [...meaningfulPhrases.slice(0, 3), ...characterSegments.slice(0, 2)];
+        console.log(`🇨🇳 [HIGHLIGHT] Doc ${docIndex}: Chinese text - using phrases: [${searchKeywords.join(', ')}]`);
+      } else {
+        // English text: traditional word-based approach
+        const words = cleanChunkText.toLowerCase().split(/\s+/);
+        const stopWords = ['a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'must', 'shall', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them'];
+        const meaningfulWords = words.filter(word => !stopWords.includes(word) && word.length > 2);
+        searchKeywords = meaningfulWords.slice(0, 5);
+        console.log(`🇺🇸 [HIGHLIGHT] Doc ${docIndex}: English text - using words: [${searchKeywords.join(', ')}]`);
+      }
       
       console.log(`🔍 [HIGHLIGHT] Doc ${docIndex}: Found ${textNodes.length} text nodes to search`);
-      console.log(`🔍 [HIGHLIGHT] Doc ${docIndex}: Looking for words: [${chunkWords.join(', ')}]`);
       
       // If we have text nodes, show first few for debugging
       if (textNodes.length > 0) {
         console.log(`📝 [HIGHLIGHT] Doc ${docIndex}: Sample text nodes:`, textNodes.slice(0, 3).map(n => `"${n.textContent?.substring(0, 50)}..."`));
       }
       
-      // Find the BEST matching text node with improved quality scoring
-      let bestMatch: { textNode: Text; nodeText: string; matchingWords: string[]; qualityScore: number } | null = null;
+      // Find the BEST matching text node with flexible scoring
+      let bestMatch: { textNode: Text; nodeText: string; matchingKeywords: string[]; qualityScore: number } | null = null;
       let bestQualityScore = 0;
       
-      // Filter out common stop words for better matching
-      const stopWords = ['a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'must', 'shall', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them'];
-      const meaningfulChunkWords = chunkWords.filter(word => !stopWords.includes(word.toLowerCase()) && word.length > 2);
-      
-      console.log(`🎯 [HIGHLIGHT] Doc ${docIndex}: Meaningful words for matching: [${meaningfulChunkWords.join(', ')}]`);
-      
       for (const textNode of textNodes) {
-        const nodeText = textNode.textContent?.toLowerCase().replace(/\s+/g, ' ').trim();
+        const nodeText = textNode.textContent?.trim() || '';
         
-        if (nodeText && nodeText.length > 10) {
-          // Calculate quality score based on meaningful word matches
-          const meaningfulMatches = meaningfulChunkWords.filter(word => nodeText.includes(word));
-          const commonWordMatches = chunkWords.filter(word => stopWords.includes(word.toLowerCase()) && nodeText.includes(word));
+        if (nodeText.length > 5) {
+          let qualityScore = 0;
+          const matchingKeywords: string[] = [];
           
-          // Quality scoring formula:
-          // - Meaningful words: 10 points each
-          // - Common words: 1 point each  
-          // - Bonus for chunk start match: +5 points
-          let qualityScore = meaningfulMatches.length * 10 + commonWordMatches.length * 1;
-          
-          // Bonus for containing chunk beginning words
-          const chunkStart = chunkText.toLowerCase().substring(0, 30);
-          if (chunkStart.split(' ').some(word => word.length > 2 && nodeText.includes(word))) {
-            qualityScore += 5;
-            console.log(`🎯 [HIGHLIGHT] Doc ${docIndex}: Found chunk start match bonus in: "${nodeText.substring(0, 40)}..."`);
+          // Check each search keyword
+          for (const keyword of searchKeywords) {
+            if (keyword && keyword.length >= 2) {
+              if (isChinese) {
+                // Chinese: exact substring match
+                if (nodeText.includes(keyword)) {
+                  const keywordScore = keyword.length * 2; // Longer phrases get higher scores
+                  qualityScore += keywordScore;
+                  matchingKeywords.push(keyword);
+                  console.log(`🎯 [HIGHLIGHT] Doc ${docIndex}: Chinese keyword match "${keyword}" (+${keywordScore} points)`);
+                }
+              } else {
+                // English: case-insensitive word boundary match
+                const nodeTextLower = nodeText.toLowerCase();
+                if (nodeTextLower.includes(keyword.toLowerCase())) {
+                  const keywordScore = keyword.length;
+                  qualityScore += keywordScore;
+                  matchingKeywords.push(keyword);
+                  console.log(`🎯 [HIGHLIGHT] Doc ${docIndex}: English keyword match "${keyword}" (+${keywordScore} points)`);
+                }
+              }
+            }
           }
           
-          if (qualityScore > bestQualityScore && meaningfulMatches.length >= 2) {
-            bestMatch = { textNode, nodeText, matchingWords: meaningfulMatches, qualityScore };
+          // Bonus for containing chunk start (first 20 characters)
+          const chunkStart = cleanChunkText.substring(0, 20);
+          if (nodeText.includes(chunkStart)) {
+            qualityScore += 10;
+            console.log(`🎯 [HIGHLIGHT] Doc ${docIndex}: Chunk start match bonus in: "${nodeText.substring(0, 50)}..."`);
+          }
+          
+          // RELAXED matching criteria - only need 1 good match
+          const minScore = isChinese ? 4 : 3; // Lower threshold for Chinese
+          if (qualityScore >= minScore && qualityScore > bestQualityScore) {
+            bestMatch = { textNode, nodeText, matchingKeywords, qualityScore };
             bestQualityScore = qualityScore;
           }
         }
@@ -1422,7 +1456,7 @@ class OperationPanel extends React.Component<
           // Store for cleanup
           this.highlightedElements.push(highlightSpan);
           
-          console.log(`✅ [HIGHLIGHT] Doc ${docIndex}: Highlighted QUALITY match: "${bestMatch.nodeText.substring(0, 80)}..." (Quality Score: ${bestMatch.qualityScore}, Meaningful words: [${bestMatch.matchingWords.join(', ')}])`);
+          console.log(`✅ [HIGHLIGHT] Doc ${docIndex}: Highlighted QUALITY match: "${bestMatch.nodeText.substring(0, 80)}..." (Quality Score: ${bestMatch.qualityScore}, Keywords: [${bestMatch.matchingKeywords.join(', ')}])`);
           return true;
         }
       }
