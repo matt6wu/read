@@ -706,12 +706,11 @@ class OperationPanel extends React.Component<
   // Use official createOneNote system with programmatic text selection
   highlightOriginalSentences = async (sentenceList: string[], startIndex: number) => {
     try {
-      // Clear previous highlights first
-      await this.clearTTSHighlights();
+      // STEP 1: Clear ALL previous highlights completely
+      console.log('🧹 [HIGHLIGHT] Clearing all previous highlights before new chunk');
+      await this.clearAllTTSHighlights();
       
-      console.log(`✨ [HIGHLIGHT] Using official createOneNote system with programmatic selection`);
-      
-      // Find which original sentences are in this chunk
+      // STEP 2: Get current chunk text
       const { nextIndex } = this.createChunk(sentenceList, startIndex);
       const chunkSentences = sentenceList.slice(startIndex, nextIndex);
       const chunkText = chunkSentences.join(' ').trim();
@@ -721,157 +720,51 @@ class OperationPanel extends React.Component<
         return;
       }
       
-      console.log(`🎯 [HIGHLIGHT] Creating programmatic selection for: "${chunkText.substring(0, 80)}..."`);
+      console.log(`🎯 [HIGHLIGHT] Highlighting current chunk: "${chunkText.substring(0, 80)}..."`);
       
-      // Try to create official highlight with programmatic text selection
-      const success = await this.createOfficialTTSHighlight(chunkText);
-      
-      if (!success) {
-        // Fallback to enhanced highlightAudioNode method
-        console.log('🔄 [HIGHLIGHT] Falling back to enhanced highlightAudioNode method');
-        console.log(`🔍 [DEBUG] highlightAudioNode exists: ${!!this.props.htmlBook?.rendition?.highlightAudioNode}`);
-        console.log(`🔍 [DEBUG] Text to highlight: "${chunkText.substring(0, 100)}..."`);
-        
-        if (this.props.htmlBook && this.props.htmlBook.rendition && this.props.htmlBook.rendition.highlightAudioNode) {
-          const style = "background: #76BEE9 !important; opacity: 0.8 !important; border-radius: 3px !important; padding: 1px 2px !important;";
-          
-          try {
-            const result = this.props.htmlBook.rendition.highlightAudioNode(chunkText, style);
-            console.log(`🔍 [DEBUG] highlightAudioNode result:`, result);
-            
-            if (result === undefined || result === false || result === null) {
-              console.log('⚠️ [HIGHLIGHT] highlightAudioNode failed to find text, trying direct DOM highlighting');
-              this.highlightTextDirectly(chunkText);
-            } else {
-              this.highlightedElements.push({ text: chunkText, highlighted: true } as any);
-              console.log('✅ [HIGHLIGHT] Fallback highlighting applied successfully');
-            }
-          } catch (error) {
-            console.error('❌ [DEBUG] highlightAudioNode failed:', error);
-            this.highlightTextDirectly(chunkText);
-          }
-        } else {
-          // Final fallback - direct DOM highlighting
-          this.highlightTextDirectly(chunkText);
-        }
-      }
+      // STEP 3: Highlight only current chunk
+      this.highlightCurrentChunkOnly(chunkText);
       
     } catch (error) {
       console.error('❌ [HIGHLIGHT] Error in TTS highlighting:', error);
     }
   };
 
-  // Create official TTS highlight using programmatic text selection
-  createOfficialTTSHighlight = async (chunkText: string): Promise<boolean> => {
-    try {
-      console.log(`🎯 [OFFICIAL] Attempting to create official TTS highlight`);
-      
-      // Step 1: Find the text in the DOM and create a selection
-      const selectionResult = await this.createProgrammaticSelection(chunkText);
-      if (!selectionResult) {
-        console.log('❌ [OFFICIAL] Could not create programmatic selection');
-        return false;
-      }
-      
-      console.log('✅ [OFFICIAL] Programmatic selection created successfully');
-      
-      // Step 2: Get the required data just like PopupOption does
-      const bookKey = this.props.currentBook.key;
-      const bookLocation = ConfigService.getObjectConfig(
-        this.props.currentBook.key,
-        "recordLocation",
-        {}
-      );
-      let cfi = JSON.stringify(bookLocation);
-      
-      // Handle PDF format
-      if (this.props.currentBook.format === "PDF") {
-        const position = await this.props.htmlBook.rendition.getPosition();
-        const pdfLocation = this.props.htmlBook.rendition.getPositionByChapter(
-          position.currentPage || 0
-        );
-        cfi = JSON.stringify(pdfLocation);
-      }
-      
-      const percentage = bookLocation.percentage ? bookLocation.percentage : "0";
-      const color = 3; // Blue color for TTS
-      const notes = "";
-      
-      // Step 3: Get highlight coordinates (this should work now with selection)
-      let range;
+  // New simplified function to clear all highlights
+  clearAllTTSHighlights = async () => {
+    console.log(`🧹 [CLEAR] Starting to clear ${this.highlightedElements.length} highlight spans`);
+    
+    // Clear Method 3 spans
+    for (const element of this.highlightedElements) {
       try {
-        const position = await this.props.htmlBook.rendition.getPosition();
-        range = JSON.stringify(
-          await this.props.htmlBook.rendition.getHightlightCoords(
-            position.currentPage || 0
-          )
-        );
-        console.log('✅ [OFFICIAL] Got highlight coordinates from selection');
-      } catch (coordError) {
-        console.warn('⚠️ [OFFICIAL] Could not get coordinates, using empty range:', coordError);
-        range = JSON.stringify({});
+        if (element && element.parentNode && element.textContent && element.ownerDocument) {
+          const textNode = element.ownerDocument.createTextNode(element.textContent);
+          element.parentNode.replaceChild(textNode, element);
+        }
+      } catch (error) {
+        console.error('❌ [CLEAR] Error removing span:', error);
       }
-      
-      // Step 4: Clean the text like PopupOption does
-      const cleanText = chunkText
-        .replace(/\s\s/g, "")
-        .replace(/\r/g, "")
-        .replace(/\n/g, "")
-        .replace(/\t/g, "")
-        .replace(/\f/g, "");
-      
-      // Step 5: Get current position info
-      const position = await this.props.htmlBook.rendition.getPosition();
-      const chapter = "TTS Chapter " + (position.currentPage || 1);
-      const chapterDocIndex = position.currentPage || 0;
-      
-      // Step 6: Create the Note object exactly like PopupOption
-      const ttsNote = new Note(
-        bookKey,
-        chapter,
-        chapterDocIndex,
-        cleanText,
-        cfi,
-        range,
-        notes,
-        percentage,
-        color,
-        []
-      );
-      
-      // Add special identifier
-      ttsNote.key = `tts-highlight-${ttsNote.key}`;
-      
-      console.log(`📝 [OFFICIAL] Created official Note object:`, {
-        key: ttsNote.key,
-        text: ttsNote.text.substring(0, 60) + '...',
-        color: ttsNote.color,
-        hasRange: range !== '{}',
-        chapterDocIndex: chapterDocIndex
-      });
-      
-      // Step 7: Create the highlight using official system
-      await this.props.htmlBook.rendition.createOneNote(
-        ttsNote,
-        this.handleTTSNoteClick
-      );
-      
-      // Store for cleanup
-      this.currentTTSNotes.push(ttsNote);
-      
-      // Clear the programmatic selection
-      this.clearProgrammaticSelection();
-      
-      console.log('✅ [OFFICIAL] Official TTS highlight created successfully!');
-      return true;
-      
-    } catch (error) {
-      console.error('❌ [OFFICIAL] Error creating official TTS highlight:', error);
-      // Clean up any partial selection
-      this.clearProgrammaticSelection();
-      return false;
+    }
+    this.highlightedElements = [];
+    console.log('✅ [CLEAR] All highlights cleared');
+  };
+
+  // New simplified function to highlight only current chunk  
+  highlightCurrentChunkOnly = (chunkText: string) => {
+    const docs = getIframeDoc(this.props.currentBook.format);
+    if (!docs || docs.length === 0) return;
+
+    console.log(`🔍 [HIGHLIGHT] Searching in ${docs.length} documents for: "${chunkText.substring(0, 50)}..."`);
+    
+    for (let i = 0; i < docs.length; i++) {
+      const doc = docs[i];
+      if (doc && this.highlightInDocument(doc, chunkText, i + 1)) {
+        console.log(`✅ [HIGHLIGHT] Successfully highlighted in document ${i + 1}`);
+        break; // Only highlight in the first document that contains the text
+      }
     }
   };
+
 
   // Create programmatic text selection with improved fuzzy matching
   createProgrammaticSelection = async (chunkText: string): Promise<boolean> => {
@@ -1417,8 +1310,22 @@ class OperationPanel extends React.Component<
   // Helper method to highlight text in a specific document
   highlightInDocument = (doc: Document, chunkText: string, docIndex: number): boolean => {
     try {
+      // Try multiple root strategies for finding text content
+      const possibleRoots = [
+        doc.querySelector('body'),
+        doc.querySelector('[epub\\:type="bodymatter"]'),
+        doc.querySelector('main'),
+        doc.querySelector('.content'),
+        doc.querySelector('#content'),
+        doc.body,
+        doc.documentElement
+      ].filter(root => root !== null);
+      
+      const rootElement = possibleRoots[0] || doc.documentElement;
+      console.log(`🔍 [HIGHLIGHT] Doc ${docIndex}: Using root element: ${rootElement.tagName} (${rootElement.className || 'no class'})`);
+      
       const walker = doc.createTreeWalker(
-        doc.body || doc.documentElement,
+        rootElement,
         NodeFilter.SHOW_TEXT,
         null
       );
@@ -1431,6 +1338,13 @@ class OperationPanel extends React.Component<
         }
       }
       
+      // Debug: show sample of document content if no text nodes found
+      if (textNodes.length === 0) {
+        const allText = rootElement.textContent?.trim() || '';
+        console.log(`⚠️ [HIGHLIGHT] Doc ${docIndex}: No text nodes found, root element content: "${allText.substring(0, 200)}..." (${allText.length} chars)`);
+        console.log(`⚠️ [HIGHLIGHT] Doc ${docIndex}: Root HTML: ${rootElement.innerHTML.substring(0, 300)}...`);
+      }
+      
       // Look for matching text
       const cleanChunkText = chunkText.toLowerCase().replace(/\s+/g, ' ').trim();
       const chunkWords = cleanChunkText.split(' ').slice(0, 5); // First 5 words for matching
@@ -1438,40 +1352,51 @@ class OperationPanel extends React.Component<
       console.log(`🔍 [HIGHLIGHT] Doc ${docIndex}: Found ${textNodes.length} text nodes to search`);
       console.log(`🔍 [HIGHLIGHT] Doc ${docIndex}: Looking for words: [${chunkWords.join(', ')}]`);
       
+      // If we have text nodes, show first few for debugging
+      if (textNodes.length > 0) {
+        console.log(`📝 [HIGHLIGHT] Doc ${docIndex}: Sample text nodes:`, textNodes.slice(0, 3).map(n => `"${n.textContent?.substring(0, 50)}..."`));
+      }
+      
+      // Find the BEST matching text node (highest word match score)
+      let bestMatch: { textNode: Text; nodeText: string; matchingWords: string[]; score: number } | null = null;
+      let bestScore = 0;
+      
       for (const textNode of textNodes) {
         const nodeText = textNode.textContent?.toLowerCase().replace(/\s+/g, ' ').trim();
         
         if (nodeText && nodeText.length > 10) {
-          // Check if this text node contains our chunk (at least 3 matching words)
+          // Calculate match score
           const matchingWords = chunkWords.filter(word => nodeText.includes(word));
-          if (matchingWords.length >= 3) {
-            const parent = textNode.parentElement;
-            if (parent) {
-              // Apply very forceful styling to ensure visibility
-              parent.style.setProperty('background-color', '#76BEE9', 'important');
-              parent.style.setProperty('color', '#000000', 'important');
-              parent.style.setProperty('opacity', '1', 'important');
-              parent.style.setProperty('border-radius', '3px', 'important');
-              parent.style.setProperty('padding', '2px 4px', 'important');
-              parent.style.setProperty('border', '2px solid #4A9EE0', 'important');
-              parent.style.setProperty('display', 'inline-block', 'important');
-              parent.style.setProperty('margin', '1px', 'important');
-              parent.style.setProperty('z-index', '999', 'important');
-              
-              // Also try highlighting the text node's parent's parent for more visibility
-              const grandParent = parent.parentElement;
-              if (grandParent) {
-                grandParent.style.setProperty('background-color', '#E6F3FF', 'important');
-                grandParent.style.setProperty('border-left', '4px solid #76BEE9', 'important');
-              }
-              
-              this.highlightedElements.push(parent);
-              if (grandParent) this.highlightedElements.push(grandParent);
-              console.log(`✅ [HIGHLIGHT] Doc ${docIndex}: Direct DOM highlighting applied to: "${nodeText.substring(0, 50)}..."`);
-              console.log(`✅ [HIGHLIGHT] Doc ${docIndex}: Matched ${matchingWords.length}/5 words: [${matchingWords.join(', ')}]`);
-              return true; // Success
-            }
+          const score = matchingWords.length;
+          
+          if (score > bestScore && score >= 3) { // Need at least 3 matching words
+            bestMatch = { textNode, nodeText, matchingWords, score };
+            bestScore = score;
           }
+        }
+      }
+      
+      // Highlight only the BEST match to avoid multiple random highlights
+      if (bestMatch) {
+        const parent = bestMatch.textNode.parentElement;
+        if (parent && parent.ownerDocument) {
+          // Create a highlight span
+          const highlightSpan = parent.ownerDocument.createElement('span');
+          highlightSpan.style.setProperty('background-color', '#76BEE9', 'important');
+          highlightSpan.style.setProperty('color', '#000000', 'important');
+          highlightSpan.style.setProperty('border-radius', '3px', 'important');
+          highlightSpan.style.setProperty('padding', '1px 2px', 'important');
+          highlightSpan.style.setProperty('display', 'inline', 'important');
+          
+          // Replace the text node with our highlighted span
+          highlightSpan.textContent = bestMatch.textNode.textContent;
+          parent.replaceChild(highlightSpan, bestMatch.textNode);
+          
+          // Store for cleanup
+          this.highlightedElements.push(highlightSpan);
+          
+          console.log(`✅ [HIGHLIGHT] Doc ${docIndex}: Highlighted BEST match: "${bestMatch.nodeText.substring(0, 80)}..." (${bestMatch.score}/${chunkWords.length} words matched: [${bestMatch.matchingWords.join(', ')}])`);
+          return true;
         }
       }
       
@@ -1495,7 +1420,26 @@ class OperationPanel extends React.Component<
   // Clear TTS highlights (simplified for enhanced system)
   clearTTSHighlights = async () => {
     try {
-      // Clear any official TTS notes if they exist
+      // Clear Method 3 highlight spans first (the ones actually being used)
+      if (this.highlightedElements.length > 0) {
+        console.log(`🧼 [HIGHLIGHT] Clearing ${this.highlightedElements.length} Method 3 highlight spans`);
+        
+        for (const element of this.highlightedElements) {
+          try {
+            if (element && element.parentNode && element.textContent && element.ownerDocument) {
+              // Create new text node with the original text
+              const textNode = element.ownerDocument.createTextNode(element.textContent);
+              // Replace the highlight span with the text node
+              element.parentNode.replaceChild(textNode, element);
+            }
+          } catch (cleanupError) {
+            console.error('❌ [HIGHLIGHT] Error removing highlight span:', cleanupError);
+          }
+        }
+        this.highlightedElements = [];
+      }
+      
+      // Clear any official TTS notes if they exist  
       if (this.currentTTSNotes.length > 0) {
         console.log(`🧼 [HIGHLIGHT] Clearing ${this.currentTTSNotes.length} official TTS notes`);
         
@@ -1511,7 +1455,7 @@ class OperationPanel extends React.Component<
         this.currentTTSNotes = [];
       }
       
-      console.log('✅ [HIGHLIGHT] TTS highlights cleared successfully');
+      console.log('✅ [HIGHLIGHT] All TTS highlights cleared successfully');
       
     } catch (error) {
       console.error('❌ [HIGHLIGHT] Error clearing TTS highlights:', error);
@@ -1585,47 +1529,7 @@ class OperationPanel extends React.Component<
     }
   };
 
-  // Original chunk highlighting method (fallback)
-  highlightCurrentChunk = async (chunkText: string) => {
-    try {
-      // Clear previous highlights
-      await this.clearTextHighlight();
-      
-      console.log(`✨ [HIGHLIGHT] Using native highlightAudioNode for: "${chunkText.substring(0, 80)}..."`);
-      
-      // Use Koodo Reader's native TTS highlighting method
-      if (this.props.htmlBook && this.props.htmlBook.rendition && this.props.htmlBook.rendition.highlightAudioNode) {
-        console.log(`🎨 [HIGHLIGHT] Using native TTS highlightAudioNode method`);
-        this.useNativeTTSHighlight(chunkText);
-      } else {
-        console.log('⚠️ [HIGHLIGHT] Native highlightAudioNode method not available');
-        
-        // Fallback to basic highlighting if native method fails
-        this.highlightTextFallback(chunkText);
-      }
-      
-    } catch (error) {
-      console.error('❌ [HIGHLIGHT] Error with native highlighting, trying fallback:', error);
-      this.highlightTextFallback(chunkText);
-    }
-  };
 
-  // Helper method for native TTS highlighting
-  useNativeTTSHighlight = (chunkText: string) => {
-    try {
-      // Use official light blue color (#76BEE9) matching the note system
-      const style = "background: #76BEE9 !important; border-radius: 3px; padding: 2px 4px; margin: -2px -4px; transition: background-color 0.2s ease;";
-      
-      // Store the highlighted text for cleanup
-      this.highlightedElements.push({ text: chunkText, highlighted: true } as any);
-      
-      this.props.htmlBook.rendition.highlightAudioNode(chunkText, style);
-      console.log(`✅ [HIGHLIGHT] TTS highlighting applied with official color`);
-    } catch (error) {
-      console.error('❌ [HIGHLIGHT] Native TTS highlighting failed:', error);
-      this.highlightTextFallback(chunkText);
-    }
-  };
 
   // Fallback highlighting method using DOM manipulation
   highlightTextFallback = (chunkText: string) => {
@@ -1711,17 +1615,19 @@ class OperationPanel extends React.Component<
         this.props.htmlBook.rendition.removeAudioHighlight();
       }
       
-      // Fallback: manually remove highlight classes/styles from DOM elements
+      // Method 3: Remove highlight spans by replacing them with original text nodes
+      console.log(`🧼 [HIGHLIGHT] Cleaning up ${this.highlightedElements.length} Method 3 highlight spans`);
       for (const element of this.highlightedElements) {
-        if (element && typeof element === 'object' && 'classList' in element) {
-          // DOM element - remove class
-          (element as Element).classList.remove('tts-highlight');
-        } else if (element && typeof element === 'object' && 'style' in element) {
-          // DOM element with direct style - reset background
-          const elem = element as HTMLElement;
-          elem.style.backgroundColor = '';
-          elem.style.borderRadius = '';
-          elem.style.padding = '';
+        try {
+          if (element && element.parentNode && element.textContent && element.ownerDocument) {
+            // Create new text node with the original text
+            const textNode = element.ownerDocument.createTextNode(element.textContent);
+            // Replace the highlight span with the text node
+            element.parentNode.replaceChild(textNode, element);
+            console.log(`✅ [HIGHLIGHT] Removed highlight span: "${element.textContent.substring(0, 30)}..."`);
+          }
+        } catch (cleanupError) {
+          console.error('❌ [HIGHLIGHT] Error removing highlight span:', cleanupError);
         }
       }
       
@@ -1828,7 +1734,7 @@ class OperationPanel extends React.Component<
       }
       
       // Clear any text highlighting
-      await this.clearTextHighlight();
+      await this.clearAllTTSHighlights();
       
       // Update state
       this.setState({ isCustomTTSOn: false });
