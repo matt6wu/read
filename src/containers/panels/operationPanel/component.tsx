@@ -728,11 +728,52 @@ class OperationPanel extends React.Component<
     return matrix[str2.length][str1.length];
   };
 
-  // Highlight current chunk text in the ebook
+  // Highlight current chunk text using native Koodo Reader method
   highlightCurrentChunk = (chunkText: string) => {
     try {
       // Clear previous highlights
       this.clearTextHighlight();
+      
+      console.log(`✨ [HIGHLIGHT] Using native highlightAudioNode for: "${chunkText.substring(0, 80)}..."`);
+      
+      // Use Koodo Reader's native TTS highlighting method
+      if (this.props.htmlBook && this.props.htmlBook.rendition && this.props.htmlBook.rendition.highlightAudioNode) {
+        console.log(`🎨 [HIGHLIGHT] Using native TTS highlightAudioNode method`);
+        this.useNativeTTSHighlight(chunkText);
+      } else {
+        console.log('⚠️ [HIGHLIGHT] Native highlightAudioNode method not available');
+        
+        // Fallback to basic highlighting if native method fails
+        this.highlightTextFallback(chunkText);
+      }
+      
+    } catch (error) {
+      console.error('❌ [HIGHLIGHT] Error with native highlighting, trying fallback:', error);
+      this.highlightTextFallback(chunkText);
+    }
+  };
+
+  // Helper method for native TTS highlighting
+  useNativeTTSHighlight = (chunkText: string) => {
+    try {
+      // Use official light blue color (#76BEE9) matching the note system
+      const style = "background: #76BEE9 !important; border-radius: 3px; padding: 2px 4px; margin: -2px -4px; transition: background-color 0.2s ease;";
+      
+      // Store the highlighted text for cleanup
+      this.highlightedElements.push({ text: chunkText, highlighted: true } as any);
+      
+      this.props.htmlBook.rendition.highlightAudioNode(chunkText, style);
+      console.log(`✅ [HIGHLIGHT] TTS highlighting applied with official color`);
+    } catch (error) {
+      console.error('❌ [HIGHLIGHT] Native TTS highlighting failed:', error);
+      this.highlightTextFallback(chunkText);
+    }
+  };
+
+  // Fallback highlighting method using DOM manipulation
+  highlightTextFallback = (chunkText: string) => {
+    try {
+      console.log(`🔄 [HIGHLIGHT] Using fallback highlighting for: "${chunkText.substring(0, 50)}..."`);
       
       // Get the iframe document
       const docs = getIframeDoc(this.props.currentBook.format || "EPUB");
@@ -751,125 +792,51 @@ class OperationPanel extends React.Component<
       // Inject CSS for highlighting if not already present
       this.injectHighlightCSS(doc);
       
-      // Find and highlight text elements containing the chunk text
-      const textElements = doc.querySelectorAll('p, div, span, li, td, th, h1, h2, h3, h4, h5, h6');
-      const cleanChunkText = chunkText.trim().replace(/\s+/g, ' ');
+      // Simple text search and highlight
+      const walker = doc.createTreeWalker(
+        doc.body || doc.documentElement,
+        NodeFilter.SHOW_TEXT,
+        null
+      );
       
-      console.log(`🔍 [HIGHLIGHT] Searching for chunk in ${textElements.length} elements`);
-      console.log(`🔍 [HIGHLIGHT] Chunk text: "${cleanChunkText.substring(0, 80)}..."`);
-      
-      // Debug: Show first few element texts to understand the structure
-      console.log(`🔬 [HIGHLIGHT] First 5 element texts:`);
-      for (let i = 0; i < Math.min(5, textElements.length); i++) {
-        const elementText = textElements[i].textContent?.trim() || '';
-        console.log(`  ${i + 1}. "${elementText.substring(0, 60)}..." (${elementText.length} chars)`);
+      const textNodes: Text[] = [];
+      let node;
+      while (node = walker.nextNode()) {
+        if (node.textContent && node.textContent.trim().length > 0) {
+          textNodes.push(node as Text);
+        }
       }
       
+      console.log(`🔍 [HIGHLIGHT] Found ${textNodes.length} text nodes for fallback highlighting`);
+      
+      // Try to find and highlight matching text
+      const cleanChunkText = chunkText.trim().toLowerCase();
       let highlighted = false;
-      let bestMatches: Array<{element: Element, score: number, text: string}> = [];
-      let debugCount = 0;
       
-      for (const element of textElements) {
-        const elementText = element.textContent?.trim().replace(/\s+/g, ' ') || '';
+      for (const textNode of textNodes) {
+        const nodeText = textNode.textContent?.trim().toLowerCase() || '';
         
-        if (elementText.length < 5) continue; // Skip very short elements
-        
-        let matchScore = 0;
-        
-        // Method 1: Direct substring matching (highest priority)
-        if (cleanChunkText.includes(elementText) || elementText.includes(cleanChunkText)) {
-          matchScore = 0.95;
-        }
-        // Method 2: Check if chunk starts with this element's text
-        else if (cleanChunkText.startsWith(elementText.substring(0, 50)) && elementText.length > 20) {
-          matchScore = 0.85;
-        }
-        // Method 3: Check if element contains start of chunk
-        else if (elementText.includes(cleanChunkText.substring(0, 50)) && cleanChunkText.length > 20) {
-          matchScore = 0.8;
-        }
-        // Method 4: Word-based matching (more flexible)
-        else if (elementText.length > 10 && cleanChunkText.length > 10) {
-          const chunkWords = cleanChunkText.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-          const elementWords = elementText.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-          
-          if (chunkWords.length > 0 && elementWords.length > 0) {
-            let matchingWords = 0;
-            
-            // Count exact word matches
-            for (const chunkWord of chunkWords) {
-              if (elementWords.includes(chunkWord)) {
-                matchingWords++;
-              }
-            }
-            
-            // Count partial word matches
-            for (const chunkWord of chunkWords) {
-              for (const elementWord of elementWords) {
-                if (chunkWord.length > 4 && elementWord.length > 4) {
-                  if (chunkWord.includes(elementWord) || elementWord.includes(chunkWord)) {
-                    matchingWords += 0.5;
-                  }
-                }
-              }
-            }
-            
-            matchScore = matchingWords / Math.max(chunkWords.length, elementWords.length);
+        // Check if this text node contains part of our chunk
+        if (nodeText.length > 10 && cleanChunkText.includes(nodeText.substring(0, 30))) {
+          const parent = textNode.parentElement;
+          if (parent) {
+            parent.style.backgroundColor = '#ffff99';
+            parent.style.borderRadius = '3px';
+            parent.style.padding = '2px 4px';
+            this.highlightedElements.push(parent);
+            highlighted = true;
+            console.log(`✨ [HIGHLIGHT] Fallback highlighted text node: "${nodeText.substring(0, 50)}..."`);
+            break; // Only highlight the first match to avoid over-highlighting
           }
-        }
-        
-        // Debug: Show matching attempts for first few elements
-        if (debugCount < 3 && elementText.length > 10) {
-          console.log(`🔎 [HIGHLIGHT] Debug element ${debugCount + 1}: "${elementText.substring(0, 50)}..." score=${matchScore.toFixed(3)}`);
-          debugCount++;
-        }
-        
-        // Collect potential matches
-        if (matchScore > 0.3) {
-          bestMatches.push({
-            element,
-            score: matchScore,
-            text: elementText.substring(0, 100)
-          });
-        }
-        // Also collect lower-scoring matches for debugging
-        else if (matchScore > 0.1 && bestMatches.length < 10) {
-          bestMatches.push({
-            element,
-            score: matchScore,
-            text: elementText.substring(0, 100)
-          });
-        }
-      }
-      
-      // Sort by score and highlight the best matches
-      bestMatches.sort((a, b) => b.score - a.score);
-      
-      console.log(`🎯 [HIGHLIGHT] Found ${bestMatches.length} potential matches`);
-      bestMatches.slice(0, 3).forEach((match, index) => {
-        console.log(`🏆 [HIGHLIGHT] Match ${index + 1}: score=${match.score.toFixed(3)}, text="${match.text}..."`);
-      });
-      
-      // Highlight the best matches (lower threshold for testing)
-      for (let i = 0; i < Math.min(bestMatches.length, 2); i++) {
-        const match = bestMatches[i];
-        if (match.score > 0.2) { // Temporarily lower threshold for debugging
-          console.log(`✨ [HIGHLIGHT] Highlighting element with score ${match.score.toFixed(3)}`);
-          
-          match.element.classList.add('tts-highlight');
-          this.highlightedElements.push(match.element);
-          highlighted = true;
         }
       }
       
       if (!highlighted) {
-        console.log('⚠️ [HIGHLIGHT] No matching elements found for highlighting');
-      } else {
-        console.log(`✅ [HIGHLIGHT] Successfully highlighted ${this.highlightedElements.length} elements`);
+        console.log('⚠️ [HIGHLIGHT] Fallback could not find matching text to highlight');
       }
       
     } catch (error) {
-      console.error('❌ [HIGHLIGHT] Error highlighting text:', error);
+      console.error('❌ [HIGHLIGHT] Error in fallback highlighting:', error);
     }
   };
 
@@ -878,13 +845,31 @@ class OperationPanel extends React.Component<
     try {
       console.log(`🧼 [HIGHLIGHT] Clearing ${this.highlightedElements.length} highlighted elements`);
       
-      // Remove highlight class from all previously highlighted elements
+      // Clear any previous TTS highlighting first
+      
+      // Try to use native method to remove TTS highlighting
+      if (this.props.htmlBook && this.props.htmlBook.rendition && this.props.htmlBook.rendition.removeAudioHighlight) {
+        console.log('🧼 [HIGHLIGHT] Using native removeAudioHighlight method');
+        this.props.htmlBook.rendition.removeAudioHighlight();
+      }
+      
+      // Fallback: manually remove highlight classes/styles from DOM elements
       for (const element of this.highlightedElements) {
-        element.classList.remove('tts-highlight');
+        if (element && typeof element === 'object' && 'classList' in element) {
+          // DOM element - remove class
+          (element as Element).classList.remove('tts-highlight');
+        } else if (element && typeof element === 'object' && 'style' in element) {
+          // DOM element with direct style - reset background
+          const elem = element as HTMLElement;
+          elem.style.backgroundColor = '';
+          elem.style.borderRadius = '';
+          elem.style.padding = '';
+        }
       }
       
       // Clear the array
       this.highlightedElements = [];
+      console.log('✅ [HIGHLIGHT] All highlights cleared successfully');
       
     } catch (error) {
       console.error('❌ [HIGHLIGHT] Error clearing highlights:', error);
