@@ -226,52 +226,15 @@ class OperationPanel extends React.Component<
       );
       console.log('📄 [TOP TTS] Raw node text list:', nodeTextList);
       
-      // Split into sentences using existing utility, then clean and merge fragments
+      // Use original sentences directly for exact DOM matching (like official TTS)
       const rawNodeList = nodeTextList.map((text) => splitSentences(text));
-      let rawSentences = rawNodeList
+      let sentenceList = rawNodeList
         .flat()
         .filter((item) => item !== "img" && !item.startsWith("img"))
         .map(sentence => sentence.trim())
-        .filter(sentence => sentence.length > 0);
+        .filter(sentence => sentence.length > 5); // Keep original sentences for exact DOM matching
       
-      // Smart sentence merging - combine fragments that were split incorrectly
-      let sentenceList: string[] = [];
-      let currentSentence = '';
-      
-      for (let i = 0; i < rawSentences.length; i++) {
-        const fragment = rawSentences[i];
-        
-        // Skip very short fragments that are just spaces or single characters
-        if (fragment.length <= 1 || fragment === ' ') {
-          continue;
-        }
-        
-        currentSentence += fragment;
-        
-        // Check if this looks like end of sentence
-        const endsWithPunctuation = /[.!?。！？]$/.test(fragment);
-        const nextFragmentStartsCapital = i + 1 < rawSentences.length && 
-          /^[A-Z\u4e00-\u9fff]/.test(rawSentences[i + 1]);
-        
-        // If reasonable length and ends properly, or if very long, finish sentence
-        if ((endsWithPunctuation && currentSentence.length > 10) || 
-            currentSentence.length > 200) {
-          if (currentSentence.trim().length > 5) {
-            sentenceList.push(currentSentence.trim());
-          }
-          currentSentence = '';
-        } else if (!endsWithPunctuation && currentSentence.length > 5) {
-          // Add space if not ending with punctuation
-          currentSentence += ' ';
-        }
-      }
-      
-      // Add final sentence if exists
-      if (currentSentence.trim().length > 5) {
-        sentenceList.push(currentSentence.trim());
-      }
-      
-      console.log('🧹 [TOP TTS] Smart merged sentences (first 10):', sentenceList.slice(0, 10));
+      console.log('🎯 [TOP TTS] Using original sentences for exact DOM matching (first 10):', sentenceList.slice(0, 10));
       
       console.log('📄 [TOP TTS] Total sentences found:', sentenceList.length);
       console.log('📄 [TOP TTS] First few sentences:', sentenceList.slice(0, 3));
@@ -320,8 +283,8 @@ class OperationPanel extends React.Component<
       console.log(`📝 [TOP TTS] Processing chunk ${Math.floor(startIndex/3) + 1}: "${currentChunk.substring(0, 100)}..."`);
       console.log(`📊 [TOP TTS] Chunk stats: ${currentChunk.length} characters`);
       
-      // Highlight current chunk text
-      this.highlightCurrentChunk(currentChunk);
+      // Highlight each original sentence in this chunk for exact DOM matching (like official TTS)
+      this.highlightOriginalSentences(sentenceList, startIndex);
       
       // Check if we have this chunk cached
       let audioBlob: Blob | null = this.audioCache.get(startIndex) || null;
@@ -728,7 +691,130 @@ class OperationPanel extends React.Component<
     return matrix[str2.length][str1.length];
   };
 
-  // Highlight current chunk text using native Koodo Reader method
+  // Use official highlighting system (createOneNote) like the text selection toolbar
+  highlightOriginalSentences = (sentenceList: string[], startIndex: number) => {
+    try {
+      // Clear previous highlights first (like official TTS)
+      this.clearTextHighlight();
+      
+      console.log(`✨ [HIGHLIGHT] Using official createOneNote highlighting (like text selection toolbar)`);
+      
+      // Find which original sentences are in this chunk
+      const { nextIndex } = this.createChunk(sentenceList, startIndex);
+      const chunkSentences = sentenceList.slice(startIndex, nextIndex);
+      
+      console.log(`🎯 [HIGHLIGHT] Processing ${chunkSentences.length} sentences with official TTS method`);
+      
+      // Highlight each sentence individually using EXACT official TTS approach
+      let highlightedCount = 0;
+      for (let i = 0; i < chunkSentences.length; i++) {
+        const currentText = chunkSentences[i].trim();
+        
+        if (currentText && currentText.length > 5) { // Must have content
+          console.log(`🔍 [HIGHLIGHT] Official TTS approach for sentence ${i + 1}: "${currentText.substring(0, 60)}..."`);
+          
+          try {
+            // EXACT replication of official TTS highlighting from lines 152-153 & 195-196
+            if (this.props.htmlBook && this.props.htmlBook.rendition && this.props.htmlBook.rendition.highlightAudioNode) {
+              // Use EXACT same style as official TTS component
+              let style = "background: #f3a6a68c;";
+              
+              // Call highlightAudioNode exactly like official TTS does
+              this.props.htmlBook.rendition.highlightAudioNode(currentText, style);
+              
+              // Store for cleanup (matching official approach)
+              this.highlightedElements.push({ text: currentText, highlighted: true } as any);
+              
+              highlightedCount++;
+              console.log(`✅ [HIGHLIGHT] Official TTS highlighting applied to sentence ${i + 1}`);
+              
+              // DEBUG: Check if DOM actually changed
+              this.inspectHighlightDOM(currentText);
+            } else {
+              console.log(`⚠️ [HIGHLIGHT] highlightAudioNode method not available`);
+            }
+          } catch (sentenceError) {
+            console.error(`❌ [HIGHLIGHT] Official TTS highlighting failed for sentence ${i + 1}:`, sentenceError);
+          }
+        }
+      }
+      
+      console.log(`🎉 [HIGHLIGHT] Official TTS highlighting complete: ${highlightedCount}/${chunkSentences.length} sentences`);
+      
+    } catch (error) {
+      console.error('❌ [HIGHLIGHT] Error in official TTS highlighting replication:', error);
+      // Don't use fallback - we need to understand why official method fails
+    }
+  };
+
+  // DEBUG: Inspect DOM to see if highlighting actually worked
+  inspectHighlightDOM = (text: string) => {
+    try {
+      console.log(`🔍 [DOM DEBUG] Inspecting DOM for highlighted text: "${text.substring(0, 50)}..."`);
+      
+      // Get iframe documents like the original reader does
+      const iframe = document.getElementById('kookit-iframe') as HTMLIFrameElement;
+      if (!iframe || !iframe.contentDocument) {
+        console.log('⚠️ [DOM DEBUG] Iframe or contentDocument not found');
+        return;
+      }
+      
+      const doc = iframe.contentDocument;
+      
+      // Search for elements with background styles
+      const allElements = doc.querySelectorAll('*');
+      let highlightedElements = 0;
+      let backgroundElements = 0;
+      
+      for (let element of allElements) {
+        const computedStyle = window.getComputedStyle(element);
+        const inlineStyle = (element as HTMLElement).style.background || (element as HTMLElement).style.backgroundColor;
+        
+        if (inlineStyle || computedStyle.backgroundColor !== 'rgba(0, 0, 0, 0)') {
+          backgroundElements++;
+          
+          if (inlineStyle && inlineStyle.includes('#f3a6a6')) {
+            highlightedElements++;
+            console.log(`🎨 [DOM DEBUG] Found TTS highlighted element:`, element);
+            console.log(`🎨 [DOM DEBUG] Element text:`, element.textContent?.substring(0, 100));
+            console.log(`🎨 [DOM DEBUG] Inline style:`, inlineStyle);
+          }
+        }
+      }
+      
+      console.log(`📊 [DOM DEBUG] Summary: ${highlightedElements} TTS highlights, ${backgroundElements} total background elements`);
+      
+      // Also check for any audio-related classes or attributes
+      const audioElements = doc.querySelectorAll('[class*="audio"], [class*="tts"], [class*="highlight"]');
+      console.log(`🎵 [DOM DEBUG] Found ${audioElements.length} audio/tts/highlight related elements`);
+      
+    } catch (error) {
+      console.error('❌ [DOM DEBUG] Error inspecting DOM:', error);
+    }
+  };
+
+  // Highlight a single sentence using native method (for exact DOM matching)
+  highlightSingleSentence = (sentenceText: string): boolean => {
+    try {
+      if (this.props.htmlBook && this.props.htmlBook.rendition && this.props.htmlBook.rendition.highlightAudioNode) {
+        // Use official TTS color from original implementation
+        const style = "background: #f3a6a68c !important; border-radius: 3px; padding: 2px; transition: background-color 0.2s ease;";
+        
+        // Store for cleanup
+        this.highlightedElements.push({ text: sentenceText, highlighted: true } as any);
+        
+        this.props.htmlBook.rendition.highlightAudioNode(sentenceText, style);
+        console.log(`✅ [HIGHLIGHT] Single sentence highlighted: "${sentenceText.substring(0, 30)}..."`);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('❌ [HIGHLIGHT] Error highlighting single sentence:', error);
+      return false;
+    }
+  };
+
+  // Original chunk highlighting method (fallback)
   highlightCurrentChunk = (chunkText: string) => {
     try {
       // Clear previous highlights
