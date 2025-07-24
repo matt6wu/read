@@ -1334,6 +1334,14 @@ class OperationPanel extends React.Component<
       let node;
       while (node = walker.nextNode()) {
         if (node.textContent && node.textContent.trim().length > 5) {
+          // Skip text nodes that are inside style or script tags
+          const parentElement = node.parentElement;
+          if (parentElement) {
+            const tagName = parentElement.tagName.toLowerCase();
+            if (tagName === 'style' || tagName === 'script' || tagName === 'head') {
+              continue; // Skip CSS and JavaScript content
+            }
+          }
           textNodes.push(node as Text);
         }
       }
