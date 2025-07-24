@@ -11,6 +11,7 @@ import { splitSentences } from "../../../utils/common";
 import { HtmlMouseEvent } from "../../../utils/reader/mouseEvent";
 import TTSUtil from "../../../utils/reader/ttsUtil";
 import { isElectron } from "react-device-detect";
+import { getIframeDoc } from "../../../utils/reader/docUtil";
 import { handleExitFullScreen, handleFullScreen } from "../../../utils/common";
 import DatabaseService from "../../../utils/storage/databaseService";
 import BookLocation from "../../../models/BookLocation";
@@ -24,6 +25,7 @@ class OperationPanel extends React.Component<
   timer: any;
   currentAudio: HTMLAudioElement | null;
   audioCache: Map<number, Blob>;
+  highlightedElements: Element[];
 
   constructor(props: OperationPanelProps) {
     super(props);
@@ -46,6 +48,7 @@ class OperationPanel extends React.Component<
     };
     this.currentAudio = null;
     this.audioCache = new Map();
+    this.highlightedElements = [];
     this.timeStamp = Date.now();
     this.speed = 30000;
   }
@@ -186,13 +189,16 @@ class OperationPanel extends React.Component<
       // Clear audio cache when stopping
       this.audioCache.clear();
       console.log('🗑️ [TOP TTS] Audio cache cleared');
+      // Clear any text highlighting
+      this.clearTextHighlight();
       this.setState({ isCustomTTSOn: false });
       console.log('✅ [TOP TTS] TTS stopped successfully');
       return;
     }
 
-    // Clear cache and start Smart TTS with chunking
+    // Clear cache and highlighting, then start Smart TTS with chunking
     this.audioCache.clear();
+    this.clearTextHighlight();
     await this.startSmartTTS();
   };
 
@@ -200,6 +206,8 @@ class OperationPanel extends React.Component<
   startSmartTTS = async () => {
     try {
       console.log('🚀 [TOP TTS] *** NEW CHUNKING VERSION *** Starting Smart TTS with chunking...');
+      // Clear any existing highlights at start
+      this.clearTextHighlight();
       this.setState({ isCustomTTSOn: true });
       
       // Get current visible text using audioText method (better for TTS)
@@ -311,6 +319,9 @@ class OperationPanel extends React.Component<
       
       console.log(`📝 [TOP TTS] Processing chunk ${Math.floor(startIndex/3) + 1}: "${currentChunk.substring(0, 100)}..."`);
       console.log(`📊 [TOP TTS] Chunk stats: ${currentChunk.length} characters`);
+      
+      // Highlight current chunk text
+      this.highlightCurrentChunk(currentChunk);
       
       // Check if we have this chunk cached
       let audioBlob: Blob | null = this.audioCache.get(startIndex) || null;
@@ -553,6 +564,10 @@ class OperationPanel extends React.Component<
         this.audioCache.clear();
         console.log('🗑️ [TOP TTS] Audio cache cleared after page turn to prevent old content playback');
         
+        // Clear highlighting when turning page
+        this.clearTextHighlight();
+        console.log('🧼 [TOP TTS] Text highlighting cleared for new page');
+        
         toast.success(this.props.t("Turning to next page..."));
         
         // Wait for page to load and verify we actually turned
@@ -608,6 +623,8 @@ class OperationPanel extends React.Component<
         }, 800); // Longer delay to ensure page loads
       } else {
         console.log('🏁 [TOP TTS] Not at end of page yet, stopping TTS');
+        // Clear highlighting when TTS completes
+        this.clearTextHighlight();
         this.setState({ isCustomTTSOn: false });
         toast.success(this.props.t("TTS completed"));
       }
@@ -711,6 +728,205 @@ class OperationPanel extends React.Component<
     return matrix[str2.length][str1.length];
   };
 
+  // Highlight current chunk text in the ebook
+  highlightCurrentChunk = (chunkText: string) => {
+    try {
+      // Clear previous highlights
+      this.clearTextHighlight();
+      
+      // Get the iframe document
+      const docs = getIframeDoc(this.props.currentBook.format || "EPUB");
+      
+      if (!docs || docs.length === 0) {
+        console.log('⚠️ [HIGHLIGHT] No iframe document found');
+        return;
+      }
+      
+      const doc = docs[0];
+      if (!doc) {
+        console.log('⚠️ [HIGHLIGHT] No document content found');
+        return;
+      }
+      
+      // Inject CSS for highlighting if not already present
+      this.injectHighlightCSS(doc);
+      
+      // Find and highlight text elements containing the chunk text
+      const textElements = doc.querySelectorAll('p, div, span, li, td, th, h1, h2, h3, h4, h5, h6');
+      const cleanChunkText = chunkText.trim().replace(/\s+/g, ' ');
+      
+      console.log(`🔍 [HIGHLIGHT] Searching for chunk in ${textElements.length} elements`);
+      console.log(`🔍 [HIGHLIGHT] Chunk text: "${cleanChunkText.substring(0, 80)}..."`);
+      
+      // Debug: Show first few element texts to understand the structure
+      console.log(`🔬 [HIGHLIGHT] First 5 element texts:`);
+      for (let i = 0; i < Math.min(5, textElements.length); i++) {
+        const elementText = textElements[i].textContent?.trim() || '';
+        console.log(`  ${i + 1}. "${elementText.substring(0, 60)}..." (${elementText.length} chars)`);
+      }
+      
+      let highlighted = false;
+      let bestMatches: Array<{element: Element, score: number, text: string}> = [];
+      let debugCount = 0;
+      
+      for (const element of textElements) {
+        const elementText = element.textContent?.trim().replace(/\s+/g, ' ') || '';
+        
+        if (elementText.length < 5) continue; // Skip very short elements
+        
+        let matchScore = 0;
+        
+        // Method 1: Direct substring matching (highest priority)
+        if (cleanChunkText.includes(elementText) || elementText.includes(cleanChunkText)) {
+          matchScore = 0.95;
+        }
+        // Method 2: Check if chunk starts with this element's text
+        else if (cleanChunkText.startsWith(elementText.substring(0, 50)) && elementText.length > 20) {
+          matchScore = 0.85;
+        }
+        // Method 3: Check if element contains start of chunk
+        else if (elementText.includes(cleanChunkText.substring(0, 50)) && cleanChunkText.length > 20) {
+          matchScore = 0.8;
+        }
+        // Method 4: Word-based matching (more flexible)
+        else if (elementText.length > 10 && cleanChunkText.length > 10) {
+          const chunkWords = cleanChunkText.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+          const elementWords = elementText.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+          
+          if (chunkWords.length > 0 && elementWords.length > 0) {
+            let matchingWords = 0;
+            
+            // Count exact word matches
+            for (const chunkWord of chunkWords) {
+              if (elementWords.includes(chunkWord)) {
+                matchingWords++;
+              }
+            }
+            
+            // Count partial word matches
+            for (const chunkWord of chunkWords) {
+              for (const elementWord of elementWords) {
+                if (chunkWord.length > 4 && elementWord.length > 4) {
+                  if (chunkWord.includes(elementWord) || elementWord.includes(chunkWord)) {
+                    matchingWords += 0.5;
+                  }
+                }
+              }
+            }
+            
+            matchScore = matchingWords / Math.max(chunkWords.length, elementWords.length);
+          }
+        }
+        
+        // Debug: Show matching attempts for first few elements
+        if (debugCount < 3 && elementText.length > 10) {
+          console.log(`🔎 [HIGHLIGHT] Debug element ${debugCount + 1}: "${elementText.substring(0, 50)}..." score=${matchScore.toFixed(3)}`);
+          debugCount++;
+        }
+        
+        // Collect potential matches
+        if (matchScore > 0.3) {
+          bestMatches.push({
+            element,
+            score: matchScore,
+            text: elementText.substring(0, 100)
+          });
+        }
+        // Also collect lower-scoring matches for debugging
+        else if (matchScore > 0.1 && bestMatches.length < 10) {
+          bestMatches.push({
+            element,
+            score: matchScore,
+            text: elementText.substring(0, 100)
+          });
+        }
+      }
+      
+      // Sort by score and highlight the best matches
+      bestMatches.sort((a, b) => b.score - a.score);
+      
+      console.log(`🎯 [HIGHLIGHT] Found ${bestMatches.length} potential matches`);
+      bestMatches.slice(0, 3).forEach((match, index) => {
+        console.log(`🏆 [HIGHLIGHT] Match ${index + 1}: score=${match.score.toFixed(3)}, text="${match.text}..."`);
+      });
+      
+      // Highlight the best matches (lower threshold for testing)
+      for (let i = 0; i < Math.min(bestMatches.length, 2); i++) {
+        const match = bestMatches[i];
+        if (match.score > 0.2) { // Temporarily lower threshold for debugging
+          console.log(`✨ [HIGHLIGHT] Highlighting element with score ${match.score.toFixed(3)}`);
+          
+          match.element.classList.add('tts-highlight');
+          this.highlightedElements.push(match.element);
+          highlighted = true;
+        }
+      }
+      
+      if (!highlighted) {
+        console.log('⚠️ [HIGHLIGHT] No matching elements found for highlighting');
+      } else {
+        console.log(`✅ [HIGHLIGHT] Successfully highlighted ${this.highlightedElements.length} elements`);
+      }
+      
+    } catch (error) {
+      console.error('❌ [HIGHLIGHT] Error highlighting text:', error);
+    }
+  };
+
+  // Clear text highlighting
+  clearTextHighlight = () => {
+    try {
+      console.log(`🧼 [HIGHLIGHT] Clearing ${this.highlightedElements.length} highlighted elements`);
+      
+      // Remove highlight class from all previously highlighted elements
+      for (const element of this.highlightedElements) {
+        element.classList.remove('tts-highlight');
+      }
+      
+      // Clear the array
+      this.highlightedElements = [];
+      
+    } catch (error) {
+      console.error('❌ [HIGHLIGHT] Error clearing highlights:', error);
+    }
+  };
+
+  // Inject CSS for highlighting into the iframe document
+  injectHighlightCSS = (doc: Document) => {
+    try {
+      // Check if CSS is already injected
+      if (doc.getElementById('tts-highlight-styles')) {
+        return;
+      }
+      
+      // Create and inject CSS
+      const style = doc.createElement('style');
+      style.id = 'tts-highlight-styles';
+      style.textContent = `
+        .tts-highlight {
+          background-color: #ffff99 !important;
+          transition: background-color 0.3s ease !important;
+          border-radius: 3px !important;
+          padding: 2px 4px !important;
+          margin: -2px -4px !important;
+        }
+        
+        .tts-highlight * {
+          background-color: transparent !important;
+        }
+      `;
+      
+      const head = doc.head || doc.getElementsByTagName('head')[0];
+      if (head) {
+        head.appendChild(style);
+        console.log('✨ [HIGHLIGHT] CSS styles injected successfully');
+      }
+      
+    } catch (error) {
+      console.error('❌ [HIGHLIGHT] Error injecting CSS:', error);
+    }
+  };
+
   // Pause TTS functionality
   handlePauseTTS = () => {
     console.log('⏸️ [TOP TTS] Pause button clicked');
@@ -767,6 +983,9 @@ class OperationPanel extends React.Component<
         URL.revokeObjectURL(audioUrl);
         console.log('🗑️ [TOP TTS] Audio blob URL revoked:', audioUrl);
       }
+      
+      // Clear any text highlighting
+      this.clearTextHighlight();
       
       // Update state
       this.setState({ isCustomTTSOn: false });
