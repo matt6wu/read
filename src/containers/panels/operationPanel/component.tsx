@@ -862,132 +862,143 @@ class OperationPanel extends React.Component<
     try {
       console.log(`🔍 [SELECTION] Looking for text to select: "${chunkText.substring(0, 50)}..."`);
       
-      // Get iframe document with multiple attempts
-      let iframe = document.getElementById('kookit-iframe') as HTMLIFrameElement;
+      // Use official getIframeDoc method (same as PopupOption.handleDigest)
+      const docs = getIframeDoc(this.props.currentBook.format);
       
-      // Try alternative iframe selectors if main one not found
-      if (!iframe) {
-        iframe = document.querySelector('iframe') as HTMLIFrameElement;
-        console.log('⚠️ [SELECTION] Main iframe not found, trying first iframe');
-      }
-      
-      if (!iframe) {
-        console.log('❌ [SELECTION] No iframe found at all');
+      if (!docs || docs.length === 0) {
+        console.log('❌ [SELECTION] No iframe documents found via getIframeDoc');
         return false;
       }
       
-      console.log(`📄 [SELECTION] Found iframe: ${iframe.id || 'unnamed'}, src: ${iframe.src || 'no src'}`);
+      console.log(`📄 [SELECTION] Found ${docs.length} iframe document(s) for format: ${this.props.currentBook.format}`);
       
-      // Wait a moment for iframe to be ready
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      const doc = iframe.contentDocument || iframe.contentWindow?.document;
-      if (!doc) {
-        console.log('❌ [SELECTION] No iframe document accessible');
-        return false;
-      }
-      
-      console.log(`📄 [SELECTION] Document ready state: ${doc.readyState}`);
-      
-      // Import the Selection and Range APIs  
-      const selection = doc.getSelection();
-      if (!selection) {
-        console.log('❌ [SELECTION] No selection API available');
-        return false;
-      }
-      
-      // Clear any existing selection
-      selection.removeAllRanges();
-      
-      // Get all text content from the document with multiple methods
-      let allText = '';
-      
-      console.log(`📄 [SELECTION] Document structure:`, {
-        hasBody: !!doc.body,
-        bodyChildren: doc.body?.children?.length || 0,
-        documentElement: doc.documentElement?.tagName,
-        title: doc.title || 'no title'
-      });
-      
-      // Wait for content to be available (especially for dynamic content)
-      let retries = 0;
-      while (retries < 3) {
-        // Method 1: Try innerText first (respects visibility)
-        if (doc.body?.innerText && doc.body.innerText.trim().length > 50) {
-          allText = doc.body.innerText;
-          console.log(`✅ [SELECTION] Got ${allText.length} chars from innerText`);
-          break;
-        }
-        // Method 2: Fallback to textContent
-        else if (doc.body?.textContent && doc.body.textContent.trim().length > 50) {
-          allText = doc.body.textContent;
-          console.log(`✅ [SELECTION] Got ${allText.length} chars from textContent`);
-          break;
-        }
-        // Method 3: Extract from all text nodes manually
-        else {
-          console.log(`⚠️ [SELECTION] Attempt ${retries + 1}: Using manual text extraction`);
-          allText = this.extractAllTextFromDOM(doc);
-          if (allText.length > 50) {
-            console.log(`✅ [SELECTION] Got ${allText.length} chars from manual extraction`);
-            break;
-          }
+      // Try each document until we find one with content
+      for (let i = 0; i < docs.length; i++) {
+        const doc = docs[i];
+        if (!doc) continue;
+        
+        console.log(`📄 [SELECTION] Trying document ${i + 1}/${docs.length}, ready state: ${doc.readyState}`);
+        
+        // Import the Selection and Range APIs  
+        const selection = doc.getSelection();
+        if (!selection) {
+          console.log(`⚠️ [SELECTION] No selection API available in document ${i + 1}`);
+          continue;
         }
         
-        // Wait a bit more for content to load
-        if (retries < 2) {
-          console.log(`⏳ [SELECTION] Waiting for content to load (attempt ${retries + 1}/3)`);
-          await new Promise(resolve => setTimeout(resolve, 200));
-        }
-        retries++;
-      }
-      
-      const normalizedAllText = this.normalizeTextForMatching(allText);
-      const normalizedChunkText = this.normalizeTextForMatching(chunkText);
-      
-      console.log(`📝 [SELECTION] Normalized chunk: "${normalizedChunkText.substring(0, 60)}..."`);
-      console.log(`📄 [SELECTION] Document has ${normalizedAllText.split(' ').filter(w => w.length > 0).length} words total`);
-      console.log(`📄 [SELECTION] Document preview: "${normalizedAllText.substring(0, 150)}..."`);
-      
-      if (normalizedAllText.length < 50) {
-        console.log('❌ [SELECTION] Document text too short, may be extraction issue');
-        return false;
-      }
-      
-      // Try multiple matching strategies
-      const matchResult = this.findBestTextMatch(normalizedChunkText, normalizedAllText);
-      
-      if (!matchResult) {
-        console.log('❌ [SELECTION] No suitable text match found in document');
-        return false;
-      }
-      
-      console.log(`✅ [SELECTION] Found match at position ${matchResult.start}-${matchResult.end} with ${matchResult.confidence.toFixed(2)} confidence`);
-      
-      // Create DOM selection based on the text match
-      const selectionSuccess = await this.createDOMSelectionFromTextMatch(doc, matchResult, allText, normalizedAllText);
-      
-      if (!selectionSuccess) {
-        console.log('❌ [SELECTION] Failed to create DOM selection from text match');
-        return false;
-      }
-      
-      // Verify the final selection
-      const selectedText = selection.toString();
-      const normalizedSelected = this.normalizeTextForMatching(selectedText);
-      const finalConfidence = this.calculateTextSimilarity(normalizedChunkText, normalizedSelected);
-      
-      console.log(`📊 [SELECTION] Final selection confidence: ${finalConfidence.toFixed(2)}`);
-      console.log(`✅ [SELECTION] Selected text: "${selectedText.substring(0, 60).replace(/\n/g, ' ')}..."`);
-      
-      if (finalConfidence < 0.2) {
-        console.log('❌ [SELECTION] Final selection confidence too low, clearing');
+        // Clear any existing selection
         selection.removeAllRanges();
-        return false;
+        
+        // Get all text content using the same methods as the official highlighting
+        let allText = '';
+        
+        // Method 1: Try innerText first (respects visibility and styling)
+        if (doc.body?.innerText && doc.body.innerText.trim().length > 100) {
+          allText = doc.body.innerText;
+          console.log(`✅ [SELECTION] Doc ${i + 1}: Got ${allText.length} chars from innerText`);
+        }
+        // Method 2: Fallback to textContent
+        else if (doc.body?.textContent && doc.body.textContent.trim().length > 100) {
+          allText = doc.body.textContent;
+          console.log(`✅ [SELECTION] Doc ${i + 1}: Got ${allText.length} chars from textContent`);
+        }
+        // Method 3: Manual extraction as last resort
+        else {
+          allText = this.extractAllTextFromDOM(doc);
+          console.log(`⚠️ [SELECTION] Doc ${i + 1}: Used manual extraction, got ${allText.length} chars`);
+        }
+        
+        // Check if this document has substantial content (not just CSS)
+        const wordCount = allText.split(/\s+/).filter(w => w.length > 2).length;
+        console.log(`📊 [SELECTION] Doc ${i + 1}: ${wordCount} meaningful words`);
+        console.log(`📄 [SELECTION] Doc ${i + 1}: Preview: "${allText.substring(0, 200).replace(/\n/g, ' ')}..."`);
+        
+        if (wordCount < 50 || allText.includes('selection background') || allText.includes('.kookit-note')) {
+          console.log(`⚠️ [SELECTION] Doc ${i + 1}: Appears to be CSS/styles, trying next document`);
+          continue;
+        }
+        
+        // Try to match the TTS chunk text with this document
+        const normalizedAllText = this.normalizeTextForMatching(allText);
+        const normalizedChunkText = this.normalizeTextForMatching(chunkText);
+        
+        const matchResult = this.findBestTextMatch(normalizedChunkText, normalizedAllText);
+        
+        if (!matchResult || matchResult.confidence < 0.3) {
+          console.log(`❌ [SELECTION] Doc ${i + 1}: No suitable text match found (confidence: ${matchResult?.confidence?.toFixed(2) || 'N/A'})`);
+          continue;
+        }
+        
+        console.log(`✅ [SELECTION] Doc ${i + 1}: Found match with ${matchResult.confidence.toFixed(2)} confidence`);
+        
+        // Extract the matched text directly from our successful match result
+        const matchedText = allText.substring(matchResult.start, matchResult.end);
+        console.log(`🎯 [SELECTION] Doc ${i + 1}: Using matched text: "${matchedText.substring(0, 60)}..."`);
+        
+        // Clean the matched text first (same as official highlighting)
+        const cleanedText = matchedText.replace(/\s\s/g, "").replace(/\r/g, "").replace(/\n/g, "").replace(/\t/g, "").replace(/\f/g, "");
+        
+        // Create note directly with matched text (skip DOM selection complexity)
+        const bookKey = this.props.currentBook.key;
+        
+        // Get current location (same as existing bookmark code in this file)
+        const bookLocation = ConfigService.getObjectConfig(
+          this.props.currentBook.key,
+          "recordLocation",
+          {}
+        );
+        
+        // Fix: Add the matched text to bookLocation (createOneNote needs this)
+        const bookLocationWithText = {
+          ...bookLocation,
+          text: cleanedText  // This is what createOneNote is looking for
+        };
+        
+        const chapter = bookLocation.chapterTitle || "Chapter";
+        const chapterDocIndex = bookLocation.chapterDocIndex || 0;
+        const cfi = JSON.stringify(bookLocationWithText);
+        const percentage = bookLocation.percentage || "0";
+        const color = 4; // Use blue color for TTS highlights  
+        const notes = "";
+        
+        // For TTS highlights, we use a simple default range since we don't need perfect positioning
+        const range = JSON.stringify({
+          start: { x: 10, y: 10 },
+          end: { x: 200, y: 30 },
+          width: 190,
+          height: 20
+        });
+        
+        
+        // Debug: log all note parameters
+        console.log('🔍 [NOTE DEBUG] Creating note with parameters:', {
+          bookKey,
+          chapter,
+          chapterDocIndex,
+          cleanedText: cleanedText.substring(0, 50) + '...',
+          cfi,
+          range,
+          notes,
+          percentage,
+          color
+        });
+        
+        const note = new Note(bookKey, chapter, chapterDocIndex, cleanedText, cfi, range, notes, percentage, color, []);
+        
+        // Save and render the note (same as PopupOption.handleDigest)
+        await DatabaseService.saveRecord(note, "notes");
+        await this.props.htmlBook.rendition.createOneNote(note, () => {});
+        
+        // Track this note for cleanup
+        this.currentTTSNotes.push(note);
+        
+        console.log(`✅ [SELECTION] Doc ${i + 1}: Official TTS highlight created successfully with direct text matching`);
+        return true;
       }
       
-      console.log('✅ [SELECTION] Programmatic selection created successfully!');
-      return true;
+      // If we get here, no document worked
+      console.log('❌ [SELECTION] No suitable document found for text selection');
+      return false;
       
     } catch (error) {
       console.error('❌ [SELECTION] Error creating programmatic selection:', error);
