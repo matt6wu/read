@@ -447,7 +447,7 @@ class OperationPanel extends React.Component<
             text,
             voice: 'zh-CN-XiaoyiNeural',
             rate: '+20%',        // Slightly faster than normal
-            pitch: '-10Hz'       // Lower pitch for deeper, warmer sound
+            pitch: '-30Hz'       // Much deeper pitch for warmer, more comfortable sound
           })
         });
       } else {
