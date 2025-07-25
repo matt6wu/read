@@ -445,7 +445,7 @@ class OperationPanel extends React.Component<
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             text,
-            voice: 'zh-CN-YunjianNeural'
+            voice: 'zh-CN-XiaoyiNeural'
           })
         });
       } else {
