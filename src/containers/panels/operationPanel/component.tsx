@@ -408,11 +408,11 @@ class OperationPanel extends React.Component<
       let response;
       
       if (language === 'zh') {
-        console.log('🇨🇳 [TOP TTS] Using Chinese TTS API for chunk');
-        response = await fetch('https://ttszh.mattwu.cc/tts', {
+        console.log('🇨🇳 [TOP TTS] Using Edge TTS API for Chinese chunk');
+        response = await fetch('https://ttsedge.mattwu.cc/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text, speaker: 'ZH' })
+          body: JSON.stringify({ text })
         });
       } else {
         console.log('🇺🇸 [TOP TTS] Using English TTS API for chunk');
