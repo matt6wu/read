@@ -341,13 +341,37 @@ class OperationPanel extends React.Component<
     let chunkSentences = 0;
     let currentIndex = startIndex;
     
+    // Build a sample text to detect language for chunking strategy
+    let sampleText = '';
+    for (let i = startIndex; i < Math.min(startIndex + 3, sentenceList.length); i++) {
+      sampleText += sentenceList[i] + ' ';
+    }
+    const language = this.detectLanguage(sampleText);
+    
+    // Language-specific chunking parameters
+    let targetLength, maxLength, minLength, minSentences;
+    
+    if (language === 'zh') {
+      // Chinese: moderate chunks - 3-4 sentences
+      targetLength = 250;  // moderate size for Chinese
+      maxLength = 350;     // max 350 chars
+      minLength = 100;     // min 100 chars
+      minSentences = 2;    // at least 2 sentences
+    } else {
+      // English: keep original larger chunks
+      targetLength = 400;
+      maxLength = 500;
+      minLength = 150;
+      minSentences = 3;
+    }
+    
     // Keep adding sentences until we have a reasonable chunk
-    while (currentIndex < sentenceList.length && chunk.length < 400) {
+    while (currentIndex < sentenceList.length && chunk.length < targetLength) {
       const sentence = sentenceList[currentIndex].trim();
       if (sentence) {
         // Check if adding this sentence would make chunk too long
         const testChunk = chunk + sentence + ' ';
-        if (testChunk.length > 500 && chunk.length > 100) {
+        if (testChunk.length > maxLength && chunk.length > minLength) {
           // If chunk is already substantial, stop here
           break;
         }
@@ -357,8 +381,15 @@ class OperationPanel extends React.Component<
       currentIndex++;
       
       // Don't make chunks too small unless we're at the end
-      if (chunkSentences >= 3 && chunk.length >= 150) {
-        break;
+      if (chunkSentences >= minSentences && chunk.length >= minLength) {
+        // For Chinese, stop after 3-4 sentences max
+        if (language === 'zh' && chunkSentences >= 4) {
+          break;
+        }
+        // For English, use original logic
+        if (language !== 'zh') {
+          break;
+        }
       }
     }
     
