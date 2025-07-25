@@ -412,7 +412,10 @@ class OperationPanel extends React.Component<
         response = await fetch('https://ttsedge.mattwu.cc/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text })
+          body: JSON.stringify({ 
+            text,
+            voice: 'zh-CN-YunjianNeural'
+          })
         });
       } else {
         console.log('🇺🇸 [TOP TTS] Using English TTS API for chunk');
