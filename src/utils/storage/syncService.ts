@@ -20,6 +20,15 @@ class SyncService {
       let config = await getCloudConfig(service);
       let thirdpartyRequest = await getThirdpartyRequest();
 
+      // Validate config for OAuth services before creating SyncUtil
+      if (['dropbox', 'google', 'microsoft', 'pcloud', 'adrive', 'microsoft_exp', 'google_exp'].includes(service)) {
+        if (!config || !config.refresh_token) {
+          console.error(`Invalid or missing refresh_token for service ${service}`);
+          // Return a placeholder SyncUtil to prevent crashes
+          return new SyncUtil("", {}, thirdpartyRequest);
+        }
+      }
+
       this.syncUtilCache[service] = new SyncUtil(
         service,
         config,
@@ -34,9 +43,18 @@ class SyncService {
   static async getPickerUtil(service: string) {
     if (!this.pickerUtilCache[service]) {
       let config = await getCloudConfig(service);
-      config.baseFolder = "";
       let thirdpartyRequest = await getThirdpartyRequest();
 
+      // Validate config for OAuth services before creating SyncUtil
+      if (['dropbox', 'google', 'microsoft', 'pcloud', 'adrive', 'microsoft_exp', 'google_exp'].includes(service)) {
+        if (!config || !config.refresh_token) {
+          console.error(`Invalid or missing refresh_token for picker service ${service}`);
+          // Return a placeholder SyncUtil to prevent crashes
+          return new SyncUtil("", {}, thirdpartyRequest);
+        }
+      }
+
+      config.baseFolder = "";
       this.pickerUtilCache[service] = new SyncUtil(
         service,
         config,

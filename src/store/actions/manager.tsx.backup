@@ -134,7 +134,7 @@ export function handleFetchPlugins() {
     DatabaseService.getAllRecords("plugins").then((pluginList) => {
       try {
         TokenService.getToken("is_authed").then((value) => {
-          let isAuthed = true; // 直接设为 true，忽略实际的 token 值
+          let isAuthed = value === "yes";
           if (isAuthed) {
             let dictPlugin = new PluginModel(
               "official-ai-dict-plugin",
@@ -193,7 +193,7 @@ export function handleFetchAuthed() {
   return (dispatch: Dispatch) => {
     try {
       TokenService.getToken("is_authed").then((value) => {
-        let isAuthed = true; // 直接设为 true，忽略实际的 token 值
+        let isAuthed = value === "yes";
         dispatch(handleAuthed(isAuthed));
       });
     } catch (error) {

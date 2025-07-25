@@ -18,7 +18,7 @@ function getDockerSecret(secretName) {
 
 // 配置信息
 const UPLOAD_DIR = path.resolve('./uploads'); // 使用绝对路径
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 6310;
 const SERVER_ENABLED = process.env.ENABLE_HTTP_SERVER === 'true'; // 新增：控制服务器是否启用
 // 优先从 Docker Secrets 读取密码，如果没有则回退到环境变量
 const SERVER_PASSWORD_FILE = process.env.SERVER_PASSWORD_FILE || 'my_secret';

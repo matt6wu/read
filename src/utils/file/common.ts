@@ -265,12 +265,31 @@ export const getCloudConfig = async (service: string) => {
     return configCache[service];
   } else {
     let result = await decryptToken(service);
-    if (result.code !== 200) {
+    if (result.code !== 200 || !result.data || !result.data.token) {
+      console.warn(`Failed to decrypt token for ${service}:`, result);
       return {};
     }
-    let config = JSON.parse(result.data.token);
-    configCache[service] = config;
-    return config;
+    try {
+      let config = JSON.parse(result.data.token);
+      // Ensure config is a valid object with expected structure
+      if (!config || typeof config !== 'object') {
+        console.warn(`Invalid config structure for ${service}:`, config);
+        return {};
+      }
+      // Add additional safety checks for OAuth services
+      if (['dropbox', 'google', 'microsoft', 'pcloud', 'adrive', 'microsoft_exp', 'google_exp'].includes(service)) {
+        if (!config.refresh_token) {
+          console.warn(`Missing refresh_token for OAuth service ${service}:`, config);
+          return {};
+        }
+      }
+      configCache[service] = config;
+      return config;
+    } catch (e) {
+      // If parsing fails, return empty config
+      console.warn(`Failed to parse config for ${service}:`, e);
+      return {};
+    }
   }
 };
 export const removeCloudConfig = (service: string) => {
