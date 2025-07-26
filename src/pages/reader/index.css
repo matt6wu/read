@@ -216,6 +216,62 @@
   font-size: 20px;
   height: 20px;
 }
+.previous-chapter-center-container {
+  width: 80px !important;
+  height: 80px !important;
+  border-radius: 50%;
+  position: fixed;
+  top: 50%;
+  left: 50px;
+  transform: translateY(-50%) rotate(90deg);
+  font-size: 60px;
+  cursor: pointer;
+  opacity: 0.3;
+  background: rgba(75, 75, 75, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: all 0.3s ease;
+  z-index: 1000;
+  pointer-events: auto;
+}
+.previous-chapter-center-container:hover {
+  opacity: 0.8;
+  background: rgba(75, 75, 75, 0.9);
+}
+.next-chapter-center-container {
+  width: 80px !important;
+  height: 80px !important;
+  border-radius: 50%;
+  position: fixed;
+  top: 50%;
+  right: 50px;
+  transform: translateY(-50%) rotate(-90deg);
+  font-size: 60px;
+  cursor: pointer;
+  opacity: 0.3;
+  background: rgba(75, 75, 75, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: all 0.3s ease;
+  z-index: 1000;
+  pointer-events: auto;
+}
+.next-chapter-center-container:hover {
+  opacity: 0.8;
+  background: rgba(75, 75, 75, 0.9);
+}
+.previous-chapter-center {
+  height: 40px;
+  font-size: 40px;
+  color: white;
+}
+.next-chapter-center {
+  font-size: 40px;
+  height: 40px;
+  color: white;
+}
 .reader-setting-icon {
   margin: 8px;
   opacity: 0.7;

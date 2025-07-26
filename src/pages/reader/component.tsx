@@ -201,6 +201,31 @@ class Reader extends React.Component<ReaderProps, ReaderState> {
             >
               <span className="icon-dropdown next-chapter-single"></span>
             </div>
+            {/* Large center page turning buttons for PDF view */}
+            <div
+              className="previous-chapter-center-container"
+              onClick={async () => {
+                if (lock) return;
+                lock = true;
+                await this.props.htmlBook.rendition.prev();
+                this.handleLocation();
+                setTimeout(() => (lock = false), throttleTime);
+              }}
+            >
+              <span className="icon-dropdown previous-chapter-center"></span>
+            </div>
+            <div
+              className="next-chapter-center-container"
+              onClick={async () => {
+                if (lock) return;
+                lock = true;
+                await this.props.htmlBook.rendition.next();
+                this.handleLocation();
+                setTimeout(() => (lock = false), throttleTime);
+              }}
+            >
+              <span className="icon-dropdown next-chapter-center"></span>
+            </div>
             {this.props.isAuthed &&
               ConfigService.getReaderConfig("isHideAIButton") !== "yes" && (
                 <div
