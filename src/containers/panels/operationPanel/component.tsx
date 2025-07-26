@@ -267,12 +267,21 @@ class OperationPanel extends React.Component<
       console.log('📄 [TOP TTS] Raw node text list:', nodeTextList);
       
       // Use original sentences directly for exact DOM matching (like official TTS)
-      const rawNodeList = nodeTextList.map((text) => splitSentences(text));
-      let sentenceList = rawNodeList
-        .flat()
+      // First, join all text and clean up fragments
+      const fullText = nodeTextList
         .filter((item) => item !== "img" && !item.startsWith("img"))
-        .map(sentence => sentence.trim())
-        .filter(sentence => sentence.length > 5); // Keep original sentences for exact DOM matching
+        .join(" ")
+        .replace(/\s+/g, " ") // Remove multiple spaces
+        .replace(/\.\.\./g, "") // Remove PDF line-ending ellipsis
+        .replace(/…/g, "") // Remove actual ellipsis characters
+        .trim();
+      
+      console.log('📄 [TOP TTS] Full cleaned text:', fullText.substring(0, 200) + '...');
+      
+      // Then split into proper sentences
+      let sentenceList = splitSentences(fullText)
+        .filter(sentence => sentence.trim().length > 10) // Longer filter for meaningful sentences
+        .map(sentence => sentence.trim());
       
       console.log('🎯 [TOP TTS] Using original sentences for exact DOM matching (first 10):', sentenceList.slice(0, 10));
       
@@ -380,11 +389,11 @@ class OperationPanel extends React.Component<
     let targetLength, maxLength, minLength, minSentences;
     
     if (language === 'zh') {
-      // Chinese: moderate chunks - 3-4 sentences
-      targetLength = 250;  // moderate size for Chinese
-      maxLength = 350;     // max 350 chars
-      minLength = 100;     // min 100 chars
-      minSentences = 2;    // at least 2 sentences
+      // Chinese: moderate chunks - 2-3 complete sentences
+      targetLength = 200;  // smaller size for Chinese to ensure complete sentences
+      maxLength = 400;     // allow longer max to complete sentences
+      minLength = 80;      // shorter min for Chinese
+      minSentences = 1;    // at least 1 complete sentence
     } else {
       // English: keep original larger chunks
       targetLength = 400;
@@ -399,8 +408,8 @@ class OperationPanel extends React.Component<
       if (sentence) {
         // Check if adding this sentence would make chunk too long
         const testChunk = chunk + sentence + ' ';
-        if (testChunk.length > maxLength && chunk.length > minLength) {
-          // If chunk is already substantial, stop here
+        if (testChunk.length > maxLength && chunk.length > minLength && chunkSentences >= minSentences) {
+          // Only stop if we have enough sentences AND length, to avoid cutting mid-sentence
           break;
         }
         chunk += sentence + ' ';
@@ -410,8 +419,8 @@ class OperationPanel extends React.Component<
       
       // Don't make chunks too small unless we're at the end
       if (chunkSentences >= minSentences && chunk.length >= minLength) {
-        // For Chinese, stop after 3-4 sentences max
-        if (language === 'zh' && chunkSentences >= 4) {
+        // For Chinese, stop after 2-3 sentences max to ensure sentence integrity
+        if (language === 'zh' && chunkSentences >= 3) {
           break;
         }
         // For English, use original logic
