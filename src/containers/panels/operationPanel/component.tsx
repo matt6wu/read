@@ -37,6 +37,7 @@ class OperationPanel extends React.Component<
   audioCache: Map<number, Blob>;
   highlightedElements: Element[];
   currentTTSNotes: Note[];
+  visibilityHandler: (() => void) | null;
 
   constructor(props: OperationPanelProps) {
     super(props);
@@ -61,6 +62,7 @@ class OperationPanel extends React.Component<
     this.audioCache = new Map();
     this.highlightedElements = [];
     this.currentTTSNotes = [];
+    this.visibilityHandler = null;
     this.timeStamp = Date.now();
     this.speed = 30000;
   }
@@ -83,6 +85,32 @@ class OperationPanel extends React.Component<
       //   this.props.currentBook.format
       // );
     });
+
+    // 防止后台标签页暂停TTS播放 - Prevent background tab from pausing TTS
+    this.handleVisibilityChange();
+  }
+
+  // 处理标签页可见性变化，确保TTS在后台继续播放
+  handleVisibilityChange = () => {
+    const visibilityHandler = () => {
+      if (document.hidden && this.state.isCustomTTSOn && this.currentAudio) {
+        console.log('🌙 [TOP TTS] Tab hidden, keeping audio active');
+        // 设置audio元素属性以在后台继续播放
+        this.currentAudio.preload = 'auto';
+        this.currentAudio.setAttribute('playsinline', 'true');
+      }
+    };
+    
+    document.addEventListener('visibilitychange', visibilityHandler);
+    // 存储处理器以便清理
+    this.visibilityHandler = visibilityHandler;
+  };
+
+  componentWillUnmount() {
+    // 清理事件监听器
+    if (this.visibilityHandler) {
+      document.removeEventListener('visibilitychange', this.visibilityHandler);
+    }
   }
 
   handleShortcut() {}
