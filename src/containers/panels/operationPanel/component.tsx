@@ -268,9 +268,32 @@ class OperationPanel extends React.Component<
       
       // Use original sentences directly for exact DOM matching (like official TTS)
       // First, join all text and clean up fragments
-      const fullText = nodeTextList
-        .filter((item) => item !== "img" && !item.startsWith("img"))
-        .join(" ")
+      // Smart joining: no space between Chinese characters, space between Chinese and English/numbers
+      let fullText = "";
+      for (let i = 0; i < nodeTextList.length; i++) {
+        const item = nodeTextList[i];
+        if (item === "img" || item.startsWith("img")) continue;
+        
+        const trimmedItem = item.trim();
+        if (!trimmedItem) continue;
+        
+        if (fullText && trimmedItem) {
+          const lastChar = fullText.slice(-1);
+          const firstChar = trimmedItem.charAt(0);
+          
+          // Check if both are Chinese characters
+          const isLastChinese = /[\u4e00-\u9fff]/.test(lastChar);
+          const isFirstChinese = /[\u4e00-\u9fff]/.test(firstChar);
+          
+          // Only add space if not both Chinese characters
+          if (!(isLastChinese && isFirstChinese)) {
+            fullText += " ";
+          }
+        }
+        fullText += trimmedItem;
+      }
+      
+      fullText = fullText
         .replace(/\s+/g, " ") // Remove multiple spaces
         .replace(/\.\.\./g, "") // Remove PDF line-ending ellipsis
         .replace(/…/g, "") // Remove actual ellipsis characters
