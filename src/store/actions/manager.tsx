@@ -11,6 +11,8 @@ import {
   officialDictList,
   officialTranList,
 } from "../../constants/settingList";
+import toast from "react-hot-toast";
+import i18n from "../../i18n";
 
 export function handleBooks(books: BookModel[]) {
   return { type: "HANDLE_BOOKS", payload: books };
@@ -48,6 +50,7 @@ export function handleSettingDrive(settingDrive: string) {
 export function handleAbout(isAboutOpen: boolean) {
   return { type: "HANDLE_ABOUT", payload: isAboutOpen };
 }
+
 export function handleViewMode(mode: string) {
   return { type: "HANDLE_VIEW_MODE", payload: mode };
 }
@@ -134,7 +137,7 @@ export function handleFetchPlugins() {
     DatabaseService.getAllRecords("plugins").then((pluginList) => {
       try {
         TokenService.getToken("is_authed").then((value) => {
-          let isAuthed = true; // 直接设为 true，忽略实际的 token 值
+          let isAuthed = value === "yes";
           if (isAuthed) {
             let dictPlugin = new PluginModel(
               "official-ai-dict-plugin",
@@ -193,7 +196,7 @@ export function handleFetchAuthed() {
   return (dispatch: Dispatch) => {
     try {
       TokenService.getToken("is_authed").then((value) => {
-        let isAuthed = true; // 直接设为 true，忽略实际的 token 值
+        let isAuthed = value === "yes";
         dispatch(handleAuthed(isAuthed));
       });
     } catch (error) {

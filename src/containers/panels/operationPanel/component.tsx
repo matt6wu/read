@@ -37,7 +37,7 @@ class OperationPanel extends React.Component<
   audioCache: Map<number, Blob>;
   highlightedElements: Element[];
   currentTTSNotes: Note[];
-  visibilityHandler: (() => void) | null;
+  visibilityHandler: (() => void) | null = null;
 
   constructor(props: OperationPanelProps) {
     super(props);
