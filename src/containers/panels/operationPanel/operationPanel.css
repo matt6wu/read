@@ -89,9 +89,9 @@
 }
 .custom-tts-button {
   float: left;
-  width: 125px;
+  width: 100px;
   height: 37px;
-  background: rgba(35, 170, 242, 0.83);
+  background: rgb(35, 170, 242);
   opacity: 1;
   margin-top: 11px;
   margin-left: 20px;
@@ -191,8 +191,8 @@
 }
 .book-operation-panel {
   width: auto !important;
-  min-width: 575px;
-  max-width: 735px;
+  min-width: 700px;
+  max-width: 900px;
   height: 90px;
   opacity: 1;
   position: absolute;
@@ -201,6 +201,8 @@
   transform: translateX(-50%);
   z-index: 10;
   animation: fade-down 0.1s ease-in-out 0s 1;
+  background: rgba(40, 44, 52, 0.95);
+  border-radius: 8px;
 }
 .book-opeartion-info {
   text-align: center;

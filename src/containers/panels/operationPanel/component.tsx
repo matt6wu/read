@@ -1911,24 +1911,24 @@ class OperationPanel extends React.Component<
           className="custom-tts-button"
           onClick={this.handleCustomTTS}
           style={{
-            backgroundColor: this.state.isCustomTTSOn ? '#23aaf2' : 'transparent'
+            backgroundColor: this.state.isCustomTTSOn ? '#1e7e34' : '#23aaf2'
           }}
         >
           <div className="operation-button-container">
             <div style={{ display: "flex", alignItems: "center" }}>
               <span 
-                className="icon-sound custom-tts-icon"
+                className={this.state.isCustomTTSOn ? "icon-stop custom-tts-icon" : "icon-microphone custom-tts-icon"}
                 style={{
-                  color: this.state.isCustomTTSOn ? 'white' : 'inherit'
+                  color: 'white'
                 }}
               ></span>
               <span 
                 className="custom-tts-text"
                 style={{
-                  color: this.state.isCustomTTSOn ? 'white' : 'inherit'
+                  color: 'white'
                 }}
               >
-                <Trans>{this.state.isCustomTTSOn ? "Stop TTS" : "NEW Smart TTS"}</Trans>
+                <Trans>{this.state.isCustomTTSOn ? "Stop TTS" : "Smart TTS"}</Trans>
               </span>
             </div>
           </div>
@@ -1966,29 +1966,23 @@ class OperationPanel extends React.Component<
             </div>
           </>
         )}
-        <div
-          className="enter-fullscreen-button"
-          onClick={() => {
-            if (isElectron) {
+        {isElectron && (
+          <div
+            className="enter-fullscreen-button"
+            onClick={() => {
               this.handleScreen();
-            } else {
-              toast(
-                this.props.t(
-                  "Koodo Reader's web version are limited by the browser, for more powerful features, please download the desktop version."
-                )
-              );
-            }
-          }}
-        >
-          <div className="operation-button-container">
-            <div style={{ display: "flex", alignItems: "center" }}>
-              <span className="icon-fullscreen enter-fullscreen-icon"></span>
-              <span className="enter-fullscreen-text">
-                <Trans>Full screen</Trans>
-              </span>
+            }}
+          >
+            <div className="operation-button-container">
+              <div style={{ display: "flex", alignItems: "center" }}>
+                <span className="icon-fullscreen enter-fullscreen-icon"></span>
+                <span className="enter-fullscreen-text">
+                  <Trans>Full screen</Trans>
+                </span>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     );
   }
