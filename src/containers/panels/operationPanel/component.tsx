@@ -1845,6 +1845,32 @@ class OperationPanel extends React.Component<
     }
   };
 
+  // Jump to the page where TTS is currently reading
+  handleGotoTTSPage = async () => {
+    console.log('📍 [TOP TTS] Goto TTS page button clicked');
+    
+    try {
+      // Get current page progress info
+      const pageProgress = await this.props.htmlBook.rendition.getProgress();
+      console.log('📍 [TOP TTS] Current page progress:', pageProgress);
+      
+      if (pageProgress && pageProgress.currentPage) {
+        console.log('📍 [TOP TTS] Jumping to page:', pageProgress.currentPage);
+        
+        // Use the goToPage method found in progressPanel
+        this.props.htmlBook.rendition.goToPage(pageProgress.currentPage);
+        
+        toast.success(this.props.t("Jumped to current reading page"));
+      } else {
+        console.log('❌ [TOP TTS] No current page found');
+        toast.error(this.props.t("No current reading location found"));
+      }
+    } catch (error) {
+      console.error('❌ [TOP TTS] Error jumping to TTS page:', error);
+      toast.error(this.props.t("Failed to jump to reading page"));
+    }
+  };
+
   render() {
     return (
       <div className="book-operation-panel">
@@ -1960,6 +1986,19 @@ class OperationPanel extends React.Component<
                   <span className="icon-stop stop-tts-icon"></span>
                   <span className="stop-tts-text">
                     <Trans>Stop</Trans>
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div
+              className="goto-page-button"
+              onClick={this.handleGotoTTSPage}
+            >
+              <div className="operation-button-container">
+                <div style={{ display: "flex", alignItems: "center" }}>
+                  <span className="icon-location goto-page-icon"></span>
+                  <span className="goto-page-text">
+                    <Trans>Page</Trans>
                   </span>
                 </div>
               </div>

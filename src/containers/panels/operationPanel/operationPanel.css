@@ -189,6 +189,40 @@
   display: block;
   width: 70%;
 }
+.goto-page-button {
+  float: left;
+  width: 80px;
+  height: 37px;
+  background: rgba(108, 117, 125, 0.83);
+  opacity: 1;
+  margin-top: 11px;
+  margin-left: 10px;
+  cursor: pointer;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: 3px;
+  transition: all 0.3s ease;
+}
+.goto-page-button:hover {
+  opacity: 0.8;
+}
+.goto-page-icon {
+  font-size: 16px;
+  margin-left: 3px;
+}
+.goto-page-text {
+  font-size: 12px;
+  line-height: 14px;
+  opacity: 1;
+  margin-left: 5px;
+  display: block;
+  width: 70%;
+}
 .book-operation-panel {
   width: auto !important;
   min-width: 700px;
