@@ -136,7 +136,8 @@ class Reader extends React.Component<ReaderProps, ReaderState> {
           break;
         }
       case "top":
-        this.setState({ isOpenTopPanel: false });
+        // Keep top panel always open - do not close
+        // this.setState({ isOpenTopPanel: false });
         break;
       case "bottom":
         this.setState({ isOpenBottomPanel: false });
