@@ -24,7 +24,7 @@ class Reader extends React.Component<ReaderProps, ReaderState> {
     super(props);
     this.state = {
       isOpenTopPanel: true,
-      isOpenBottomPanel: false,
+      isOpenBottomPanel: true,
       hoverPanel: "",
       isOpenLeftPanel: this.props.isNavLocked,
       isOpenRightPanel: this.props.isSettingLocked,
@@ -140,7 +140,8 @@ class Reader extends React.Component<ReaderProps, ReaderState> {
         // this.setState({ isOpenTopPanel: false });
         break;
       case "bottom":
-        this.setState({ isOpenBottomPanel: false });
+        // Keep bottom panel always open - do not close
+        // this.setState({ isOpenBottomPanel: false });
         break;
       default:
         break;
