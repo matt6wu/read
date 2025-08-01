@@ -499,52 +499,82 @@ class OperationPanel extends React.Component<
       let response;
       
       if (language === 'zh') {
-        // 🎯 首选：MeloTTS - 高质量中文语音合成
-        console.log('🎤 [TOP TTS] Trying MeloTTS (High Quality) for Chinese chunk');
-        let meloSuccess = false;
+        // 🎯 智能负载均衡：轮流使用两个MeloTTS服务器，失败时自动切换
+        const meloServers = [
+          {
+            url: 'https://ttszh3.mattwu.cc/tts',
+            name: 'MeloTTS-1',
+            payload: {
+              text,
+              language: "ZH", 
+              speaker: "ZH",
+              speed: 1.1
+            }
+          },
+          {
+            url: 'https://ttszh.mattwu.cc/tts', 
+            name: 'MeloTTS-2',
+            payload: {
+              text,
+              speaker: "ZH",
+              speed: 1.0
+            }
+          }
+        ];
         
+        // 简单轮询：基于时间戳选择服务器
+        const serverIndex = Math.floor(Date.now() / 1000) % 2;
+        const primaryServer = meloServers[serverIndex];
+        const backupServer = meloServers[1 - serverIndex];
+        
+        console.log(`🎯 [TOP TTS] Using ${primaryServer.name} as primary, ${backupServer.name} as backup`);
+        
+        // 先尝试主服务器
         try {
-          const meloResponse = await fetch('https://ttszh3.mattwu.cc/tts', {
+          const response = await fetch(primaryServer.url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              text,
-              language: "ZH",
-              speaker: "ZH", 
-              speed: 1.1  // Slightly faster for comfortable reading pace
-            })
+            body: JSON.stringify(primaryServer.payload)
           });
           
-          if (meloResponse.ok) {
-            const contentType = meloResponse.headers.get('content-type');
+          if (response.ok) {
+            const contentType = response.headers.get('content-type');
             if (contentType && contentType.includes('audio')) {
-              const audioBlob = await meloResponse.blob();
-              console.log('✨ [TOP TTS] MeloTTS success! High-quality audio generated, size:', audioBlob.size);
+              const audioBlob = await response.blob();
+              console.log(`✨ [TOP TTS] ${primaryServer.name} success! Audio size:`, audioBlob.size);
               return audioBlob;
-            } else {
-              const errorText = await meloResponse.text();
-              console.warn('⚠️ [TOP TTS] MeloTTS returned non-audio response:', errorText.substring(0, 200));
             }
-          } else {
-            const errorText = await meloResponse.text();
-            console.warn('⚠️ [TOP TTS] MeloTTS API error:', meloResponse.status, errorText.substring(0, 200));
           }
-        } catch (meloError) {
-          console.warn('⚠️ [TOP TTS] MeloTTS connection error:', meloError.message);
+          console.warn(`⚠️ [TOP TTS] ${primaryServer.name} failed:`, response.status);
+        } catch (error) {
+          console.warn(`⚠️ [TOP TTS] ${primaryServer.name} error:`, error.message);
         }
         
-        // 🔄 备选：Edge TTS - 可靠的中文语音
-        console.log('🇨🇳 [TOP TTS] Using Edge TTS (Reliable Fallback) for Chinese chunk');
-        response = await fetch('https://ttsedge.mattwu.cc/tts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            text,
-            voice: 'zh-CN-XiaoyiNeural',  // 晓怡 - 温和自然的女声
-            rate: '+20%',                 // 略快语速，适合阅读
-            pitch: '-20Hz'                // 稍低音调，听起来更温暖
-          })
-        });
+        // 主服务器失败，尝试备用服务器
+        console.log(`🔄 [TOP TTS] Trying backup server: ${backupServer.name}`);
+        try {
+          const response = await fetch(backupServer.url, {
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(backupServer.payload)
+          });
+          
+          if (response.ok) {
+            const contentType = response.headers.get('content-type');
+            if (contentType && contentType.includes('audio')) {
+              const audioBlob = await response.blob();
+              console.log(`✨ [TOP TTS] ${backupServer.name} success! Audio size:`, audioBlob.size);
+              return audioBlob;
+            }
+          }
+          console.warn(`⚠️ [TOP TTS] ${backupServer.name} failed:`, response.status);
+        } catch (error) {
+          console.warn(`⚠️ [TOP TTS] ${backupServer.name} error:`, error.message);
+        }
+        
+        // 🚫 Edge TTS暂时关闭 - 两个MeloTTS服务器应该足够了
+        console.log('❌ [TOP TTS] Both MeloTTS servers failed, no Edge TTS fallback for now');
+        return null;
       } else {
         console.log('🇺🇸 [TOP TTS] Using English TTS API for chunk');
         response = await fetch(`https://tts.mattwu.cc/api/tts?text=${encodeURIComponent(text)}&speaker_id=p335`);
