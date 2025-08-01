@@ -493,21 +493,56 @@ class OperationPanel extends React.Component<
     }
   };
 
-  // Generate TTS audio for a text chunk
+  // Generate TTS audio for a text chunk with fallback support
   generateTTSAudio = async (text: string, language: string): Promise<Blob | null> => {
     try {
       let response;
       
       if (language === 'zh') {
-        console.log('🇨🇳 [TOP TTS] Using Edge TTS API for Chinese chunk');
+        // 🎯 首选：MeloTTS - 高质量中文语音合成
+        console.log('🎤 [TOP TTS] Trying MeloTTS (High Quality) for Chinese chunk');
+        let meloSuccess = false;
+        
+        try {
+          const meloResponse = await fetch('https://ttszh3.mattwu.cc/tts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              text,
+              language: "ZH",
+              speaker: "ZH", 
+              speed: 1.1  // Slightly faster for comfortable reading pace
+            })
+          });
+          
+          if (meloResponse.ok) {
+            const contentType = meloResponse.headers.get('content-type');
+            if (contentType && contentType.includes('audio')) {
+              const audioBlob = await meloResponse.blob();
+              console.log('✨ [TOP TTS] MeloTTS success! High-quality audio generated, size:', audioBlob.size);
+              return audioBlob;
+            } else {
+              const errorText = await meloResponse.text();
+              console.warn('⚠️ [TOP TTS] MeloTTS returned non-audio response:', errorText.substring(0, 200));
+            }
+          } else {
+            const errorText = await meloResponse.text();
+            console.warn('⚠️ [TOP TTS] MeloTTS API error:', meloResponse.status, errorText.substring(0, 200));
+          }
+        } catch (meloError) {
+          console.warn('⚠️ [TOP TTS] MeloTTS connection error:', meloError.message);
+        }
+        
+        // 🔄 备选：Edge TTS - 可靠的中文语音
+        console.log('🇨🇳 [TOP TTS] Using Edge TTS (Reliable Fallback) for Chinese chunk');
         response = await fetch('https://ttsedge.mattwu.cc/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             text,
-            voice: 'zh-CN-XiaoyiNeural',
-            rate: '+20%',        // Slightly faster than normal
-            pitch: '-20Hz'       // Moderately deeper pitch for balanced warmth and clarity
+            voice: 'zh-CN-XiaoyiNeural',  // 晓怡 - 温和自然的女声
+            rate: '+20%',                 // 略快语速，适合阅读
+            pitch: '-20Hz'                // 稍低音调，听起来更温暖
           })
         });
       } else {
