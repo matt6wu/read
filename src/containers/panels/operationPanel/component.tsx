@@ -875,7 +875,7 @@ class OperationPanel extends React.Component<
   highlightOriginalSentences = async (sentenceList: string[], startIndex: number) => {
     try {
       // STEP 1: Clear ALL previous highlights completely
-      console.log('🧹 [HIGHLIGHT] Clearing all previous highlights before new chunk');
+      // Clear previous highlights
       await this.clearAllTTSHighlights();
       
       // STEP 2: Get current chunk text
@@ -884,11 +884,9 @@ class OperationPanel extends React.Component<
       const chunkText = chunkSentences.join(' ').trim();
       
       if (!chunkText || chunkText.length < 10) {
-        console.log('⚠️ [HIGHLIGHT] Chunk text too short for highlighting');
         return;
       }
       
-      console.log(`🎯 [HIGHLIGHT] Highlighting current chunk: "${chunkText.substring(0, 80)}..."`);
       
       // STEP 3: Highlight only current chunk
       this.highlightCurrentChunkOnly(chunkText);
@@ -922,12 +920,10 @@ class OperationPanel extends React.Component<
     const docs = getIframeDoc(this.props.currentBook.format);
     if (!docs || docs.length === 0) return;
 
-    console.log(`🔍 [HIGHLIGHT] Searching in ${docs.length} documents for: "${chunkText.substring(0, 50)}..."`);
     
     for (let i = 0; i < docs.length; i++) {
       const doc = docs[i];
       if (doc && this.highlightInDocument(doc, chunkText, i + 1)) {
-        console.log(`✅ [HIGHLIGHT] Successfully highlighted in document ${i + 1}`);
         break; // Only highlight in the first document that contains the text
       }
     }
@@ -1445,31 +1441,26 @@ class OperationPanel extends React.Component<
   // Direct DOM highlighting as final fallback
   highlightTextDirectly = (chunkText: string) => {
     try {
-      console.log(`🔧 [HIGHLIGHT] Using direct DOM highlighting for: "${chunkText.substring(0, 50)}..."`);
       
       // Use same iframe detection as our working text extraction
       const docs = getIframeDoc(this.props.currentBook.format);
       
       if (!docs || docs.length === 0) {
-        console.log('⚠️ [HIGHLIGHT] No iframe documents found for direct highlighting');
         return;
       }
       
-      console.log(`📄 [HIGHLIGHT] Found ${docs.length} iframe document(s) for direct highlighting`);
       
       // Try each document until we find and highlight the text
       for (let i = 0; i < docs.length; i++) {
         const doc = docs[i];
         if (!doc) continue;
         
-        console.log(`🔧 [HIGHLIGHT] Trying direct highlighting in document ${i + 1}/${docs.length}`);
         
         if (this.highlightInDocument(doc, chunkText, i + 1)) {
           return; // Success, stop trying other documents
         }
       }
       
-      console.log('❌ [HIGHLIGHT] Direct highlighting failed in all documents');
     } catch (error) {
       console.error('❌ [HIGHLIGHT] Error in direct DOM highlighting:', error);
     }
@@ -1490,7 +1481,6 @@ class OperationPanel extends React.Component<
       ].filter(root => root !== null);
       
       const rootElement = possibleRoots[0] || doc.documentElement;
-      console.log(`🔍 [HIGHLIGHT] Doc ${docIndex}: Using root element: ${rootElement.tagName} (${rootElement.className || 'no class'})`);
       
       const walker = doc.createTreeWalker(
         rootElement,
@@ -1517,8 +1507,6 @@ class OperationPanel extends React.Component<
       // Debug: show sample of document content if no text nodes found
       if (textNodes.length === 0) {
         const allText = rootElement.textContent?.trim() || '';
-        console.log(`⚠️ [HIGHLIGHT] Doc ${docIndex}: No text nodes found, root element content: "${allText.substring(0, 200)}..." (${allText.length} chars)`);
-        console.log(`⚠️ [HIGHLIGHT] Doc ${docIndex}: Root HTML: ${rootElement.innerHTML.substring(0, 300)}...`);
       }
       
       // Improved Chinese/English text matching
@@ -1537,21 +1525,17 @@ class OperationPanel extends React.Component<
         const meaningfulPhrases = phrases.filter(phrase => phrase.trim().length >= 3 && phrase.trim().length <= 15);
         const characterSegments = cleanChunkText.match(/[\u4e00-\u9fff]{3,8}/g) || []; // 3-8 character segments
         searchKeywords = [...meaningfulPhrases.slice(0, 3), ...characterSegments.slice(0, 2)];
-        console.log(`🇨🇳 [HIGHLIGHT] Doc ${docIndex}: Chinese text - using phrases: [${searchKeywords.join(', ')}]`);
       } else {
         // English text: traditional word-based approach
         const words = cleanChunkText.toLowerCase().split(/\s+/);
         const stopWords = ['a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'must', 'shall', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them'];
         const meaningfulWords = words.filter(word => !stopWords.includes(word) && word.length > 2);
         searchKeywords = meaningfulWords.slice(0, 5);
-        console.log(`🇺🇸 [HIGHLIGHT] Doc ${docIndex}: English text - using words: [${searchKeywords.join(', ')}]`);
       }
       
-      console.log(`🔍 [HIGHLIGHT] Doc ${docIndex}: Found ${textNodes.length} text nodes to search`);
       
       // If we have text nodes, show first few for debugging
       if (textNodes.length > 0) {
-        console.log(`📝 [HIGHLIGHT] Doc ${docIndex}: Sample text nodes:`, textNodes.slice(0, 3).map(n => `"${n.textContent?.substring(0, 50)}..."`));
       }
       
       // Find the BEST matching text node with flexible scoring
@@ -1574,7 +1558,6 @@ class OperationPanel extends React.Component<
                   const keywordScore = keyword.length * 2; // Longer phrases get higher scores
                   qualityScore += keywordScore;
                   matchingKeywords.push(keyword);
-                  console.log(`🎯 [HIGHLIGHT] Doc ${docIndex}: Chinese keyword match "${keyword}" (+${keywordScore} points)`);
                 }
               } else {
                 // English: case-insensitive word boundary match
@@ -1583,7 +1566,6 @@ class OperationPanel extends React.Component<
                   const keywordScore = keyword.length;
                   qualityScore += keywordScore;
                   matchingKeywords.push(keyword);
-                  console.log(`🎯 [HIGHLIGHT] Doc ${docIndex}: English keyword match "${keyword}" (+${keywordScore} points)`);
                 }
               }
             }
@@ -1593,7 +1575,6 @@ class OperationPanel extends React.Component<
           const chunkStart = cleanChunkText.substring(0, 20);
           if (nodeText.includes(chunkStart)) {
             qualityScore += 10;
-            console.log(`🎯 [HIGHLIGHT] Doc ${docIndex}: Chunk start match bonus in: "${nodeText.substring(0, 50)}..."`);
           }
           
           // BALANCED matching criteria - Chinese looser, English stricter
@@ -1625,12 +1606,10 @@ class OperationPanel extends React.Component<
           // Store for cleanup
           this.highlightedElements.push(highlightSpan);
           
-          console.log(`✅ [HIGHLIGHT] Doc ${docIndex}: Highlighted QUALITY match: "${bestMatch.nodeText.substring(0, 80)}..." (Quality Score: ${bestMatch.qualityScore}, Keywords: [${bestMatch.matchingKeywords.join(', ')}])`);
           return true;
         }
       }
       
-      console.log(`⚠️ [HIGHLIGHT] Doc ${docIndex}: Could not find matching text for direct highlighting`);
       return false;
       
     } catch (error) {
@@ -1652,7 +1631,6 @@ class OperationPanel extends React.Component<
     try {
       // Clear Method 3 highlight spans first (the ones actually being used)
       if (this.highlightedElements.length > 0) {
-        console.log(`🧼 [HIGHLIGHT] Clearing ${this.highlightedElements.length} Method 3 highlight spans`);
         
         for (const element of this.highlightedElements) {
           try {
@@ -1671,7 +1649,6 @@ class OperationPanel extends React.Component<
       
       // Clear any official TTS notes if they exist  
       if (this.currentTTSNotes.length > 0) {
-        console.log(`🧼 [HIGHLIGHT] Clearing ${this.currentTTSNotes.length} official TTS notes`);
         
         for (const ttsNote of this.currentTTSNotes) {
           try {
@@ -1685,7 +1662,6 @@ class OperationPanel extends React.Component<
         this.currentTTSNotes = [];
       }
       
-      console.log('✅ [HIGHLIGHT] All TTS highlights cleared successfully');
       
     } catch (error) {
       console.error('❌ [HIGHLIGHT] Error clearing TTS highlights:', error);
@@ -1749,7 +1725,6 @@ class OperationPanel extends React.Component<
         this.highlightedElements.push({ text: sentenceText, highlighted: true } as any);
         
         this.props.htmlBook.rendition.highlightAudioNode(sentenceText, style);
-        console.log(`✅ [HIGHLIGHT] Single sentence highlighted: "${sentenceText.substring(0, 30)}..."`);
         return true;
       }
       return false;
@@ -1764,19 +1739,16 @@ class OperationPanel extends React.Component<
   // Fallback highlighting method using DOM manipulation
   highlightTextFallback = (chunkText: string) => {
     try {
-      console.log(`🔄 [HIGHLIGHT] Using fallback highlighting for: "${chunkText.substring(0, 50)}..."`);
       
       // Get the iframe document
       const docs = getIframeDoc(this.props.currentBook.format || "EPUB");
       
       if (!docs || docs.length === 0) {
-        console.log('⚠️ [HIGHLIGHT] No iframe document found');
         return;
       }
       
       const doc = docs[0];
       if (!doc) {
-        console.log('⚠️ [HIGHLIGHT] No document content found');
         return;
       }
       
@@ -1798,7 +1770,6 @@ class OperationPanel extends React.Component<
         }
       }
       
-      console.log(`🔍 [HIGHLIGHT] Found ${textNodes.length} text nodes for fallback highlighting`);
       
       // Try to find and highlight matching text
       const cleanChunkText = chunkText.trim().toLowerCase();
@@ -1816,14 +1787,12 @@ class OperationPanel extends React.Component<
             parent.style.padding = '2px 4px';
             this.highlightedElements.push(parent);
             highlighted = true;
-            console.log(`✨ [HIGHLIGHT] Fallback highlighted text node: "${nodeText.substring(0, 50)}..."`);
             break; // Only highlight the first match to avoid over-highlighting
           }
         }
       }
       
       if (!highlighted) {
-        console.log('⚠️ [HIGHLIGHT] Fallback could not find matching text to highlight');
       }
       
     } catch (error) {
@@ -1834,19 +1803,16 @@ class OperationPanel extends React.Component<
   // Clear text highlighting
   clearTextHighlight = async () => {
     try {
-      console.log(`🧼 [HIGHLIGHT] Clearing highlights: ${this.highlightedElements.length} legacy + ${this.currentTTSNotes.length} official TTS`);
       
       // First, clear official TTS highlights using removeOneNote
       await this.clearTTSHighlights();
       
       // Then clear legacy highlighting methods
       if (this.props.htmlBook && this.props.htmlBook.rendition && this.props.htmlBook.rendition.removeAudioHighlight) {
-        console.log('🧼 [HIGHLIGHT] Using native removeAudioHighlight method');
         this.props.htmlBook.rendition.removeAudioHighlight();
       }
       
       // Method 3: Remove highlight spans by replacing them with original text nodes
-      console.log(`🧼 [HIGHLIGHT] Cleaning up ${this.highlightedElements.length} Method 3 highlight spans`);
       for (const element of this.highlightedElements) {
         try {
           if (element && element.parentNode && element.textContent && element.ownerDocument) {
@@ -1854,7 +1820,6 @@ class OperationPanel extends React.Component<
             const textNode = element.ownerDocument.createTextNode(element.textContent);
             // Replace the highlight span with the text node
             element.parentNode.replaceChild(textNode, element);
-            console.log(`✅ [HIGHLIGHT] Removed highlight span: "${element.textContent.substring(0, 30)}..."`);
           }
         } catch (cleanupError) {
           console.error('❌ [HIGHLIGHT] Error removing highlight span:', cleanupError);
@@ -1863,7 +1828,6 @@ class OperationPanel extends React.Component<
       
       // Clear the legacy array
       this.highlightedElements = [];
-      console.log('✅ [HIGHLIGHT] All highlights cleared successfully (both official and legacy)');
       
     } catch (error) {
       console.error('❌ [HIGHLIGHT] Error clearing highlights:', error);
@@ -1898,7 +1862,6 @@ class OperationPanel extends React.Component<
       const head = doc.head || doc.getElementsByTagName('head')[0];
       if (head) {
         head.appendChild(style);
-        console.log('✨ [HIGHLIGHT] CSS styles injected successfully');
       }
       
     } catch (error) {
