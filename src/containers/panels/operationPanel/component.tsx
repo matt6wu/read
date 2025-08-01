@@ -516,7 +516,8 @@ class OperationPanel extends React.Component<
             name: 'MeloTTS-2',
             payload: {
               text,
-              speaker: "ZH",
+              language: "ZH",
+              speaker: "ZH", 
               speed: 1.0
             }
           }
