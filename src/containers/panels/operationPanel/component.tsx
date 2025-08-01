@@ -522,8 +522,9 @@ class OperationPanel extends React.Component<
           }
         ];
         
-        // 简单轮询：基于时间戳选择服务器
-        const serverIndex = Math.floor(Date.now() / 1000) % 2;
+        // 真正轮询：每次请求轮换服务器
+        this.ttsServerIndex = (this.ttsServerIndex || 0) + 1;
+        const serverIndex = this.ttsServerIndex % 2;
         const primaryServer = meloServers[serverIndex];
         const backupServer = meloServers[1 - serverIndex];
         
