@@ -631,7 +631,7 @@ class OperationPanel extends React.Component<
         
         await this.props.htmlBook.rendition.next();
         
-        // 🗑️ Clear cache when turning page to prevent old page content playback
+        // 🗑️ Clear cache when turning page to prevent old page content playbook
         this.audioCache.clear();
         console.log('🗑️ [TOP TTS] Audio cache cleared after page turn to prevent old content playback');
         
@@ -640,6 +640,10 @@ class OperationPanel extends React.Component<
         console.log('🧼 [TOP TTS] Text highlighting cleared for new page');
         
         toast.success(this.props.t("Turning to next page..."));
+        
+        // 🎯 Background tab optimization: Use longer delay for background tabs
+        const isBackgroundTab = document.visibilityState === 'hidden';
+        const delay = isBackgroundTab ? 1500 : 800; // Longer delay for background tabs
         
         // Wait for page to load and verify we actually turned
         setTimeout(async () => {
@@ -679,19 +683,20 @@ class OperationPanel extends React.Component<
                 console.log('🔄 [TOP TTS] Content unchanged, trying to continue anyway...');
                 // Sometimes page turn is successful but content appears same
                 // Try to continue anyway after a longer delay
+                const retryDelay = isBackgroundTab ? 2000 : 1000; // Longer retry for background tabs
                 setTimeout(() => {
                   if (this.state.isCustomTTSOn) {
                     console.log('🔄 [TOP TTS] Retrying TTS after longer delay...');
                     this.startSmartTTS();
                   }
-                }, 1000);
+                }, retryDelay);
               }
             } catch (error) {
               console.error('❌ [TOP TTS] Error verifying page turn:', error);
               this.setState({ isCustomTTSOn: false });
             }
           }
-        }, 800); // Longer delay to ensure page loads
+        }, delay); // Dynamic delay based on tab visibility
       } else {
         console.log('🏁 [TOP TTS] Not at end of page yet, stopping TTS');
         // Clear highlighting when TTS completes
