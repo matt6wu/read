@@ -499,99 +499,44 @@ class OperationPanel extends React.Component<
       let response;
       
       if (language === 'zh') {
-        // 🎯 智能负载均衡：轮流使用两个MeloTTS服务器，失败时自动切换
-        const meloServers = [
-          {
-            url: 'https://ttszh3.mattwu.cc/tts',
-            name: 'MeloTTS-1',
-            payload: {
-              text,
-              language: "ZH", 
-              speaker: "ZH",
-              speed: 1.1
-            }
-          },
-          {
-            url: 'https://ttszh.mattwu.cc/tts', 
-            name: 'MeloTTS-2',
-            payload: {
-              text,
-              language: "ZH",
-              speaker: "ZH", 
-              speed: 1.0
-            }
+        // 🚀 使用TTS负载均衡代理 - 统一端点，智能分派
+        console.log(`🎯 [TTS PROXY] Sending request to load balancer`);
+        
+        response = await fetch('https://chinesetts.mattwu.cc/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text,
+            language: "ZH",
+            speaker: "ZH", 
+            speed: 1.1
+          })
+        });
+        
+        if (response.ok) {
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('audio')) {
+            const audioBlob = await response.blob();
+            console.log(`✅ [TTS PROXY] Success! Audio size:`, audioBlob.size);
+            return audioBlob;
           }
-        ];
-        
-        // 真正轮询：每次请求轮换服务器
-        this.ttsServerIndex = (this.ttsServerIndex || 0) + 1;
-        const serverIndex = this.ttsServerIndex % 2;
-        const primaryServer = meloServers[serverIndex];
-        const backupServer = meloServers[1 - serverIndex];
-        
-        console.log(`🎯 [TOP TTS] LoadBalance #${this.ttsServerIndex} → ${primaryServer.name} primary, ${backupServer.name} backup`);
-        
-        // 先尝试主服务器
-        try {
-          const response = await fetch(primaryServer.url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(primaryServer.payload)
-          });
-          
-          if (response.ok) {
-            const contentType = response.headers.get('content-type');
-            if (contentType && contentType.includes('audio')) {
-              const audioBlob = await response.blob();
-              console.log(`✨ [TOP TTS] ${primaryServer.name} success! Audio size:`, audioBlob.size);
-              return audioBlob;
-            }
-          }
-          console.warn(`⚠️ [TOP TTS] ${primaryServer.name} failed:`, response.status);
-        } catch (error) {
-          console.warn(`⚠️ [TOP TTS] ${primaryServer.name} error:`, error.message);
         }
-        
-        // 主服务器失败，尝试备用服务器
-        console.log(`🔄 [TOP TTS] Trying backup server: ${backupServer.name}`);
-        try {
-          const response = await fetch(backupServer.url, {
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(backupServer.payload)
-          });
-          
-          if (response.ok) {
-            const contentType = response.headers.get('content-type');
-            if (contentType && contentType.includes('audio')) {
-              const audioBlob = await response.blob();
-              console.log(`✨ [TOP TTS] ${backupServer.name} success! Audio size:`, audioBlob.size);
-              return audioBlob;
-            }
-          }
-          console.warn(`⚠️ [TOP TTS] ${backupServer.name} failed:`, response.status);
-        } catch (error) {
-          console.warn(`⚠️ [TOP TTS] ${backupServer.name} error:`, error.message);
-        }
-        
-        // 🚫 Edge TTS暂时关闭 - 两个MeloTTS服务器应该足够了
-        console.log('❌ [TOP TTS] Both MeloTTS servers failed, no Edge TTS fallback for now');
+        console.warn(`⚠️ [TTS PROXY] Failed:`, response.status);
         return null;
       } else {
-        console.log('🇺🇸 [TOP TTS] Using English TTS API for chunk');
+        // 🇺🇸 英文TTS - 暂时保持原有逻辑  
+        console.log('🇺🇸 [TTS] Using English TTS API');
         response = await fetch(`https://tts.mattwu.cc/api/tts?text=${encodeURIComponent(text)}&speaker_id=p335`);
+        
+        if (!response.ok) {
+          console.error(`❌ [TTS] English TTS API error:`, response.status);
+          return null;
+        }
+        
+        const audioBlob = await response.blob();
+        console.log(`✅ [TTS] English audio blob size:`, audioBlob.size);
+        return audioBlob;
       }
-      
-      console.log(`📡 [TOP TTS] ${language.toUpperCase()} API response:`, response.status);
-      
-      if (!response.ok) {
-        console.error(`❌ [TOP TTS] ${language.toUpperCase()} TTS API error:`, response.status);
-        return null;
-      }
-      
-      const audioBlob = await response.blob();
-      console.log(`🎵 [TOP TTS] ${language.toUpperCase()} audio blob size:`, audioBlob.size);
-      return audioBlob;
       
     } catch (error) {
       console.error('❌ [TOP TTS] Error generating TTS audio:', error);
