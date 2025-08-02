@@ -529,7 +529,7 @@ class OperationPanel extends React.Component<
         const primaryServer = meloServers[serverIndex];
         const backupServer = meloServers[1 - serverIndex];
         
-        console.log(`🎯 [TOP TTS] Using ${primaryServer.name} as primary, ${backupServer.name} as backup`);
+        console.log(`🎯 [TOP TTS] LoadBalance #${this.ttsServerIndex} → ${primaryServer.name} primary, ${backupServer.name} backup`);
         
         // 先尝试主服务器
         try {
