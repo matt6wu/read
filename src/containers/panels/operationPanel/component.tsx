@@ -248,6 +248,12 @@ class OperationPanel extends React.Component<
       console.log('🚀 [TOP TTS] *** NEW CHUNKING VERSION *** Starting Smart TTS with chunking...');
       // Clear any existing highlights at start
       await this.clearTextHighlight();
+      
+      // Clear caches for fresh start
+      this.audioCache.clear();
+      this.requestCache.clear();
+      console.log('🗑️ [TOP TTS] Cleared caches for fresh start');
+      
       this.setState({ isCustomTTSOn: true });
       
       // Get current visible text using audioText method (better for TTS)
@@ -493,8 +499,37 @@ class OperationPanel extends React.Component<
     }
   };
 
+  // In-flight requests cache to prevent duplicate requests
+  private requestCache = new Map<string, Promise<Blob | null>>();
+
   // Generate TTS audio for a text chunk with fallback support
   generateTTSAudio = async (text: string, language: string): Promise<Blob | null> => {
+    // Create a unique key for this request
+    const cacheKey = `${language}:${text.substring(0, 100)}:${text.length}`;
+    
+    // Check if the same request is already in flight
+    if (this.requestCache.has(cacheKey)) {
+      console.log('⚡ [DEDUP] Using in-flight request for identical text');
+      return await this.requestCache.get(cacheKey)!;
+    }
+    
+    // Create the request promise
+    const requestPromise = this.performTTSRequest(text, language);
+    
+    // Cache the promise while it's in flight
+    this.requestCache.set(cacheKey, requestPromise);
+    
+    try {
+      const result = await requestPromise;
+      return result;
+    } finally {
+      // Remove from cache when done (success or failure)
+      this.requestCache.delete(cacheKey);
+    }
+  };
+
+  // Actual TTS request implementation
+  private performTTSRequest = async (text: string, language: string): Promise<Blob | null> => {
     try {
       let response;
       
@@ -1873,6 +1908,11 @@ class OperationPanel extends React.Component<
       
       // Clear any text highlighting
       await this.clearAllTTSHighlights();
+      
+      // Clear audio cache and in-flight requests
+      this.audioCache.clear();
+      this.requestCache.clear();
+      console.log('🗑️ [TOP TTS] Cleared audio cache and request cache');
       
       // Update state
       this.setState({ isCustomTTSOn: false });
