@@ -412,11 +412,11 @@ class OperationPanel extends React.Component<
     let targetLength, maxLength, minLength, minSentences;
     
     if (language === 'zh') {
-      // Chinese: moderate chunks - 2-3 complete sentences
-      targetLength = 200;  // smaller size for Chinese to ensure complete sentences
-      maxLength = 400;     // allow longer max to complete sentences
-      minLength = 80;      // shorter min for Chinese
-      minSentences = 1;    // at least 1 complete sentence
+      // Chinese: longer chunks - 4-6 complete sentences for smoother experience
+      targetLength = 400;  // longer target for smoother playback
+      maxLength = 700;     // allow longer chunks
+      minLength = 200;     // longer minimum
+      minSentences = 3;    // at least 3 complete sentences
     } else {
       // English: keep original larger chunks
       targetLength = 400;
@@ -442,8 +442,8 @@ class OperationPanel extends React.Component<
       
       // Don't make chunks too small unless we're at the end
       if (chunkSentences >= minSentences && chunk.length >= minLength) {
-        // For Chinese, stop after 2-3 sentences max to ensure sentence integrity
-        if (language === 'zh' && chunkSentences >= 3) {
+        // For Chinese, allow up to 6 sentences for longer chunks
+        if (language === 'zh' && chunkSentences >= 6) {
           break;
         }
         // For English, use original logic
